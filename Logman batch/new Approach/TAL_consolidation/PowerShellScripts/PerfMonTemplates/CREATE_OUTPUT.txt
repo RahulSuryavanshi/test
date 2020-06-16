@@ -1,0 +1,19 @@
+--
+Create: WIN2012SQL2012 
+
+Error:
+Data Collector already exists.
+Create: OMNILOADVM1 
+
+Error:
+Data Collector already exists.
+Create: SERVER2003 
+
+Error:
+Data Collector already exists.
+Create: WIN2012SQL2012 
+The command completed successfully.
+Create: OMNILOADVM1 
+The command completed successfully.
+Create: SERVER2003 
+The command completed successfully.

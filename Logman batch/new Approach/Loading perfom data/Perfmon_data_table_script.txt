@@ -1,0 +1,280 @@
+use [Perfmon_data]
+
+CREATE TABLE [dbo].[Avg_CPU_PHPM](
+	[machinename] [varchar](1024) NOT NULL,
+	[start_time] [varchar](29) NULL,
+	[% Processor Time] [float] NULL,
+	[Counts] [int] NULL,
+	[Sums] [float] NULL
+);
+
+CREATE TABLE [dbo].[AVG_Disk_Bytes_sec](
+	[Machinename] [varchar](1024) NOT NULL,
+	[AVG Disk Bytes Sec] [float] NULL,
+	[Max Disk Bytes Sec] [float] NULL,
+	[start_time] [varchar](29) NULL,
+	[Counts] [int] NULL,
+	[Sums] [float] NULL
+);
+
+CREATE TABLE [dbo].[Avg_Disk_Read_Bytes_sec](
+	[Machinename] [varchar](1024) NOT NULL,
+	[AVG Disk Read Bytes/sec] [float] NULL,
+	[Max Disk Read Bytes/sec] [float] NULL,
+	[start_time] [varchar](29) NULL,
+	[Counts] [int] NULL,
+	[Sums] [float] NULL
+);
+
+CREATE TABLE [dbo].[AVG_Disk_Read_Queue_Length](
+	[Machinename] [varchar](1024) NOT NULL,
+	[AVG Disk Read Queue Length] [float] NULL,
+	[Max Disk Read Queue Length] [float] NULL,
+	[start_time] [varchar](29) NULL,
+	[Counts] [int] NULL,
+	[Sums] [float] NULL
+);
+
+CREATE TABLE [dbo].[AVG_Disk_Reads_sec](
+	[Machinename] [varchar](1024) NOT NULL,
+	[AVG Disk Reads/sec] [float] NULL,
+	[Max Disk Reads/sec] [float] NULL,
+	[start_time] [varchar](29) NULL,
+	[Counts] [int] NULL,
+	[Sums] [float] NULL
+);
+
+CREATE TABLE [dbo].[AVG_Disk_sec_Read](
+	[Machinename] [varchar](1024) NOT NULL,
+	[AVG Disk sec/Read] [float] NULL,
+	[Max Disk sec/Read] [float] NULL,
+	[start_time] [varchar](29) NULL,
+	[Counts] [int] NULL,
+	[Sums] [float] NULL
+);
+
+CREATE TABLE [dbo].[AVG_Disk_sec_Write](
+	[Machinename] [varchar](1024) NOT NULL,
+	[AVG Disk sec/Write] [float] NULL,
+	[Max Disk sec/Write] [float] NULL,
+	[start_time] [varchar](29) NULL,
+	[Counts] [int] NULL,
+	[Sums] [float] NULL
+);
+
+CREATE TABLE [dbo].[AVG_Disk_Transfers_sec](
+	[Machinename] [varchar](1024) NOT NULL,
+	[AVG Disk Transfers/sec] [float] NULL,
+	[Max Disk Transfers/sec] [float] NULL,
+	[start_time] [varchar](29) NULL,
+	[Counts] [int] NULL,
+	[Sums] [float] NULL
+);
+
+CREATE TABLE [dbo].[AVG_Disk_Write_Bytes_sec](
+	[Machinename] [varchar](1024) NOT NULL,
+	[AVG Disk Write Bytes/sec] [float] NULL,
+	[Max Disk Write Bytes/sec] [float] NULL,
+	[start_time] [varchar](29) NULL,
+	[Counts] [int] NULL,
+	[Sums] [float] NULL
+);
+
+CREATE TABLE [dbo].[AVG_Disk_Write_Queue_Length](
+	[Machinename] [varchar](1024) NOT NULL,
+	[AVG Disk Write Queue Length] [float] NULL,
+	[Max Disk Write Queue Length] [float] NULL,
+	[start_time] [varchar](29) NULL,
+	[Counts] [int] NULL,
+	[Sums] [float] NULL
+);
+
+CREATE TABLE [dbo].[AVG_Disk_Writes_sec](
+	[Machinename] [varchar](1024) NOT NULL,
+	[AVG Disk Writes/sec] [float] NULL,
+	[Max Disk Writes/sec] [float] NULL,
+	[start_time] [varchar](29) NULL,
+	[Counts] [int] NULL,
+	[Sums] [float] NULL
+);
+
+CREATE TABLE [dbo].[Avg_NW_Bytes_PHPM](
+	[MachineName] [varchar](1024) NOT NULL,
+	[start_time] [varchar](29) NULL,
+	[TotalBytesSec] [float] NULL
+);
+
+CREATE TABLE [dbo].[Avg_NW_Packets_PHPM](
+	[MachineName] [varchar](1024) NOT NULL,
+	[start_time] [varchar](29) NULL,
+	[TotalPackectsSec] [float] NULL
+);
+
+CREATE TABLE [dbo].[MAX_CPU_PM](
+	[machinename] [varchar](1024) NOT NULL,
+	[start_time] [varchar](29) NULL,
+	[ENDTime] [datetime] NULL,
+	[% Processor Time] [float] NULL
+);
+
+CREATE TABLE [dbo].[Max_NW_Bytes_PHPM](
+	[machinename] [varchar](1024) NOT NULL,
+	[start_time] [varchar](29) NULL,
+	[ENDTime] [datetime] NULL,
+	[TotalBytesSec] [float] NULL
+);
+
+CREATE TABLE [dbo].[Max_NW_Packets_PHPM](
+	[machinename] [varchar](1024) NOT NULL,
+	[start_time] [varchar](29) NULL,
+	[ENDTime] [datetime] NULL,
+	[TotalPackectsSec] [float] NULL
+);
+
+CREATE TABLE [dbo].[STORAGE_OP](
+	[MachineName] [varchar](1024) NULL,
+	[AVG Disk Read Bytes/sec] [float] NULL,
+	[Max Disk Read Bytes/sec] [float] NULL,
+	[StartTimeDiskReadBytesSec] [varchar](29) NULL,
+	[ENDTimeDiskReadBytesSec] [datetime] NULL,
+	[AVG Disk Write Bytes/sec] [float] NULL,
+	[Max Disk Write Bytes/sec] [float] NULL,
+	[StartTimeMaxDiskWriteBytesSec] [varchar](29) NULL,
+	[ENDTimeMaxDiskWriteBytesSec] [datetime] NULL,
+	[AVG Disk Reads/sec] [float] NULL,
+	[Max Disk Reads/sec] [float] NULL,
+	[StartTimeMaxDiskReadsSec] [varchar](29) NULL,
+	[ENDTimeMaxDiskReadsSec] [datetime] NULL,
+	[AVG Disk Writes/sec] [float] NULL,
+	[Max Disk Writes/sec] [float] NULL,
+	[StartTimeMaxDiskWritesSec] [varchar](29) NULL,
+	[ENDTimeMaxDiskWritesSec] [datetime] NULL,
+	[AVG Disk sec/Read] [float] NULL,
+	[Max Disk sec/Read] [float] NULL,
+	[StartTimeMaxDiskSecRead] [varchar](29) NULL,
+	[ENDTimeMaxDiskSecRead] [datetime] NULL,
+	[AVG Disk sec/Write] [float] NULL,
+	[Max Disk sec/Write] [float] NULL,
+	[StartTimeMaxDiskSecWrite] [varchar](29) NULL,
+	[ENDTimeMaxDiskSecWrite] [datetime] NULL,
+	[AVG Disk Read Queue Length] [float] NULL,
+	[Max Disk Read Queue Length] [float] NULL,
+	[StartTimeMaxDiskReadQueueLength] [varchar](29) NULL,
+	[ENDTimeMaxDiskReadQueueLength] [datetime] NULL,
+	[AVG Disk Write Queue Length] [float] NULL,
+	[max Disk Write Queue Length] [float] NULL,
+	[StartTimeMaxDiskWriteQueueLength] [varchar](29) NULL,
+	[ENDTimeMaxDiskWriteQueueLength] [datetime] NULL,
+	[AVG Disk Transfers/sec] [float] NULL,
+	[Max Disk Transfers/sec] [float] NULL,
+	[StartTimeMaxDiskTransfersSec] [varchar](29) NULL,
+	[ENDTimeMaxDiskTransfersSec] [datetime] NULL,
+	[AVG Disk Bytes Sec] [float] NULL,
+	[Max Disk Bytes Sec] [float] NULL,
+	[StartTimeMaxDiskBytesSec] [varchar](29) NULL,
+	[ENDTimeMaxDiskBytesSec] [datetime] NULL
+);
+
+CREATE TABLE [dbo].[TIER_Allin2](
+	[MachineName] [varchar](1024) NULL,
+	[AvgProcCounterValue] [float] NULL,
+	[COUNTER_NAME1] [varchar](13) NULL,
+	[ProcessorUtilTIER] [varchar](1) NULL,
+	[Arrange1] [varchar](1) NULL,
+	[machinename2] [varchar](1024) NULL,
+	[AvgPLECounterValue] [float] NULL,
+	[COUNTER_NAME2] [varchar](18) NULL,
+	[PLETIER] [varchar](1) NULL,
+	[Arrange2] [varchar](1) NULL,
+	[machinename3] [varchar](1024) NULL,
+	[AvgContextSwitchesCounterValue] [float] NULL,
+	[COUNTER_NAME3] [varchar](15) NULL,
+	[ContextSwitchesTIER] [varchar](1) NULL,
+	[Arrange3] [varchar](1) NULL,
+	[machinename4] [varchar](1024) NULL,
+	[AvgProcessorQueueLengthCounterValue] [float] NULL,
+	[COUNTER_NAME4] [varchar](20) NULL,
+	[PQLTIER] [varchar](1) NULL,
+	[Arrange4] [varchar](1) NULL,
+	[machinename5] [varchar](1024) NULL,
+	[AvgDiskSecReadCounterValue] [float] NULL,
+	[COUNTER_NAME5] [varchar](11) NULL,
+	[DiskSecReadTIER] [varchar](1) NULL,
+	[Arrange5] [varchar](1) NULL,
+	[machinename6] [varchar](1024) NULL,
+	[AvgDiskSecWriteCounterValue] [float] NULL,
+	[COUNTER_NAME6] [varchar](12) NULL,
+	[DiskSecWriteTIER] [varchar](1) NULL,
+	[Arrange6] [varchar](1) NULL,
+	[machinenamelproc] [varchar](1024) NOT NULL,
+	[Lproc] [int] NULL
+);
+
+CREATE TABLE [dbo].[TIER1](
+	[MachineName] [varchar](1024) NULL,
+	[LProc] [int] NULL,
+	[AvgProcCounterValue] [float] NULL,
+	[COUNTER_NAME1] [varchar](13) NULL,
+	[ProcessorUtilTIER] [varchar](1) NULL,
+	[AvgPLECounterValue] [float] NULL,
+	[COUNTER_NAME2] [varchar](18) NULL,
+	[PLETIER] [varchar](1) NULL,
+	[AvgContextSwitchesCounterValue] [float] NULL,
+	[COUNTER_NAME3] [varchar](15) NULL,
+	[ContextSwitchesTIER] [varchar](1) NULL,
+	[AvgProcessorQueueLengthCounterValue] [float] NULL,
+	[COUNTER_NAME4] [varchar](20) NULL,
+	[PQLTIER] [varchar](1) NULL,
+	[AvgDiskSecReadCounterValue] [float] NULL,
+	[COUNTER_NAME5] [varchar](11) NULL,
+	[DiskSecReadTIER] [varchar](1) NULL,
+	[AvgDiskSecWriteCounterValue] [float] NULL,
+	[COUNTER_NAME6] [varchar](12) NULL,
+	[DiskSecWriteTIER] [varchar](1) NULL
+);
+
+CREATE TABLE [dbo].[TIER2](
+	[MachineName] [varchar](1024) NULL,
+	[LProc] [int] NULL,
+	[AvgProcCounterValue] [float] NULL,
+	[COUNTER_NAME1] [varchar](13) NULL,
+	[ProcessorUtilTIER] [varchar](1) NULL,
+	[AvgPLECounterValue] [float] NULL,
+	[COUNTER_NAME2] [varchar](18) NULL,
+	[PLETIER] [varchar](1) NULL,
+	[AvgContextSwitchesCounterValue] [float] NULL,
+	[COUNTER_NAME3] [varchar](15) NULL,
+	[ContextSwitchesTIER] [varchar](1) NULL,
+	[AvgProcessorQueueLengthCounterValue] [float] NULL,
+	[COUNTER_NAME4] [varchar](20) NULL,
+	[PQLTIER] [varchar](1) NULL,
+	[AvgDiskSecReadCounterValue] [float] NULL,
+	[COUNTER_NAME5] [varchar](11) NULL,
+	[DiskSecReadTIER] [varchar](1) NULL,
+	[AvgDiskSecWriteCounterValue] [float] NULL,
+	[COUNTER_NAME6] [varchar](12) NULL,
+	[DiskSecWriteTIER] [varchar](1) NULL
+);
+
+CREATE TABLE [dbo].[TIER3](
+	[MachineName] [varchar](1024) NULL,
+	[LProc] [int] NULL,
+	[AvgProcCounterValue] [float] NULL,
+	[COUNTER_NAME1] [varchar](13) NULL,
+	[ProcessorUtilTIER] [varchar](1) NULL,
+	[AvgPLECounterValue] [float] NULL,
+	[COUNTER_NAME2] [varchar](18) NULL,
+	[PLETIER] [varchar](1) NULL,
+	[AvgContextSwitchesCounterValue] [float] NULL,
+	[COUNTER_NAME3] [varchar](15) NULL,
+	[ContextSwitchesTIER] [varchar](1) NULL,
+	[AvgProcessorQueueLengthCounterValue] [float] NULL,
+	[COUNTER_NAME4] [varchar](20) NULL,
+	[PQLTIER] [varchar](1) NULL,
+	[AvgDiskSecReadCounterValue] [float] NULL,
+	[COUNTER_NAME5] [varchar](11) NULL,
+	[DiskSecReadTIER] [varchar](1) NULL,
+	[AvgDiskSecWriteCounterValue] [float] NULL,
+	[COUNTER_NAME6] [varchar](12) NULL,
+	[DiskSecWriteTIER] [varchar](1) NULL
+);

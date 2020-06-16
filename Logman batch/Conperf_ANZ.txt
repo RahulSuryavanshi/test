@@ -1,0 +1,11 @@
+USE [master]
+GO
+CREATE DATABASE [ConPerf_ANZ] ON  PRIMARY 
+( NAME = N'ConPerf_ANZ', FILENAME = N'C:\Customername\ConPerf_ANZ.mdf' , 
+	MAXSIZE = UNLIMITED, FILEGROWTH = 1024KB )
+ LOG ON 
+( NAME = N' ConPerf_ANZ_log', FILENAME = N'C:\Customername\ConPerf_ANZ_log.ldf' , 
+	MAXSIZE = 2048GB , FILEGROWTH = 10%)
+GO
+ALTER DATABASE [ConPerf_ANZ] SET RECOVERY SIMPLE 
+GO

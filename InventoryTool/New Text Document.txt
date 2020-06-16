@@ -1,0 +1,5 @@
+Install-WindowsFeature -ConfigurationFilePath c:\DeploymentConfigTemplate.xml
+
+Get-ADComputer -Filter * -Property *| 
+Select-Object Name,domain,OperatingSystem,OperatingSystemServicePack,ipv4Address | 
+ConvertTo-csv | Out-File C:\ad_computers_list.csv -Encoding UTF8

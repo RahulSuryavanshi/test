@@ -1,0 +1,7 @@
+--
+Delete: WIN2012SQL2012 
+The command completed successfully.
+Delete: OMNILOADVM1 
+The command completed successfully.
+Delete: SERVER2003 
+The command completed successfully.

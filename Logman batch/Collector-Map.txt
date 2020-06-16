@@ -1,0 +1,1694 @@
+<#
+    .SYNOPSIS
+        Produce a XML collection file from "MAP Toolkit" SQL Server source. (v11.0.101 - Oct 25, 2017)
+ 
+    .DESCRIPTION
+        Creates artifact collection file for uploading through the Microsoft WorkSpace service for SAM and APEX
+        engagements that require XML documents in a specific format.
+ 
+        The script is to be executed on a machine with access to the SQL database.
+ 
+        Note: To enable PowerShell script execution, it may be necessary to change the script execution policy.
+              To change the execution policy, from the PowerShell command prompt type the following command and press Enter
+              eg. PS C:>Set-ExecutionPolicy Unrestricted -Scope CurrentUser
+ 
+    .PARAMETER XmlFilePath
+        Fully Qualified Path to storage location of XML file to be created.  The application will automatically generate the file name.
+ 
+    .PARAMETER ServerName
+        Name of the server containing the database to access.
+ 
+    .PARAMETER DatabaseName
+        Name of the database containing information to collect.
+ 
+    .PARAMETER IntegratedSecurity
+        If specified, the connection to the database is made using Windows Integrated Authentication.
+        If this value is not specified the user may include a PSCredential object containing a valid SQL Server login using the Credential parameter.
+        If neither of these parameters are specified the user will be prompt to supply a valid SQL login at time execution.
+ 
+    .PARAMETER Credential
+        This parameter accepts a PSCredential object that should contain a valid SQL Server login.
+ 
+    .PARAMETER ProgressDisplay
+        If specified, the command window includes a progress activity indicator.
+ 
+    .PARAMETER SuppressLogFile
+        Log files are created by default, if this switch is included the creation of a Log file will be suppressed.
+ 
+    .PARAMETER LogFilePath
+        Fully Qualified Path to storage location of Log file to be created. If no path is specified the file will be created in the same folder as the XML file. The application will automatically generate the file name.
+ 
+    .PARAMETER FilterVersion
+        If included, the script will use a specified custom filter.  If not specified, the script will default to a Primary filter value.
+ 
+    .PARAMETER xDTCall
+        This value is reserved for internal processing and should be ignored when running this script in a PowerShell command window.
+ 
+    .PARAMETER DataSource
+        This value is reserved for internal processing and should be ignored when running this script in a PowerShell command window.
+ 
+    .PARAMETER AppVersion
+        This value is reserved for internal processing and should be ignored when running this script in a PowerShell command window.
+ 
+    .EXAMPLE
+        C:\TEMP\Collector-Map.ps1 "C:\TEMP\" "SERVER01" "Database1"
+ 
+    .EXAMPLE
+        C:\TEMP\Collector-Map.ps1 -XmlFilePath "C:\TEMP\" -ServerName "SERVER01" -DatabaseName "Database1" -IntegratedSecurity -ProgressDisplay -SuppressLogFile
+ 
+    .LINK
+        Author: Inviso Corporation
+        Website: InvisoCorp.com/SAM
+        Support Email: InvisoSA@InvisoCorp.com
+ 
+    .NOTES
+        DISCLAIMER: The sample scripts are not supported under any Microsoft standard support program or
+        service. The sample scripts are provided AS IS without warranty of any kind. Microsoft further
+        disclaims all implied warranties including, without limitation, any implied warranties of merchantability
+        or of fitness for a particular purpose. The entire risk arising out of the use or performance of
+        the sample scripts and documentation remains with you. In no event shall Microsoft, its authors,
+        or anyone else involved in the creation, production, or delivery of the scripts be liable for any
+        damages whatsoever (including, without limitation, damages for loss of business profits, business
+        interruption, loss of business information, or other pecuniary loss) arising out of the use of or
+        inability to use the sample scripts or documentation, even if Microsoft has been advised of the
+        possibility of such damages.
+ 
+#>
+[CmdletBinding(SupportsShouldProcess=$true)]
+Param (
+    [Parameter(Mandatory=$true,Position=0)]
+        [string] $XmlFilePath,
+    [Parameter(Mandatory=$true,Position=1)]
+        [string] $ServerName,
+    [Parameter(Mandatory=$true,Position=2)]
+        [string] $DatabaseName,
+    [Parameter(Position=3)]
+        [switch] $IntegratedSecurity,
+    [Parameter(Position=4)]
+        [System.Management.Automation.PSCredential] $Credential,
+    [Parameter(Position=5)]
+        [switch] $ProgressDisplay,
+    [Parameter(Position=6)]
+        [switch] $SuppressLogFile,
+    [Parameter(Position=7)]
+        [string] $LogFilePath,
+    [Parameter(Position=8)]
+        [string] $FilterVersion = 'Primary',
+    [Parameter(Position=9)]
+        [switch] $xDTCall,
+    [Parameter(Position=10)]
+        [string] $DataSource,
+    [Parameter(Position=11)]
+        [string] $AppVersion
+)
+ 
+#region VARIABLES
+ 
+#region CONSTANTS
+#Make modifications to script specific values here
+Set-Variable -Name XmlFileExtension -Option Constant -Value 'xml';
+Set-Variable -Name LogFileExtension -Option Constant -Value 'log';
+Set-Variable -Name DiscoveryDate -Option Constant -Value (Get-Date -format s);
+Set-Variable -Name FileDate -Option Constant -Value (Get-Date -format 'M-d-yyyy H.m.s');
+Set-Variable -Name Tab -Option Constant -Value ([char]9);
+Set-Variable -Name PSVersion -Option Constant -Value $PsVersionTable.PSVersion;
+Set-Variable -Name dotNetVersion -Option Constant -Value $PsVersionTable.CLRVersion;
+#endregion CONSTANTS
+ 
+#region WORKING VARIABLES
+#Set processing variable values
+$TableReadCount = 0;
+$TotalRowCount = 0;
+$StartDate = Get-Date;
+$ExecutionSuccess = $false;
+ 
+#Inialize Versioning object to be loaded from the initial SQLQuery call
+$Versioning = '' | Select-Object 'DataSource', 'AppVersion', 'ScriptVersion', 'DataOriginSource', 'PrimarySourceTool', 'PrimarySourceToolVersion', 'PSVersion', 'dotNetVersion', 'DiscoveryDate', 'AnonymizationIdentifier', 'AnonymizationCheckValue';
+$Versioning.DataSource = $DataSource;
+$Versioning.AppVersion = $AppVersion;
+$Versioning.PSVersion = $PSVersion;
+$Versioning.dotNetVersion = $dotNetVersion;
+$Versioning.DiscoveryDate = $DiscoveryDate;
+ 
+#Initialize Output objects
+$XmlHeader = '<?xml version="1.0" standalone="yes"?>';
+$XmlRootOpen = '<Root>';
+$XmlRootClose = '</Root>';
+ 
+#Initalize log file Hashtable capture variable
+$LogStore = @{};
+ 
+# Create a Regex object to remove invalid XML characters from collected data before writing to file
+$InvalidXmlCharactersRegex = New-Object System.Text.RegularExpressions.Regex("[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\u10000-\u10FFFF]");
+ 
+#Translate FilterVersion into bit map value
+$FilterSet = Switch ($FilterVersion)
+		{
+			'No Filter' {0}
+			'Primary' {1}
+			'Microsoft Only' {2}
+			'Microsoft' {3}
+			'Publisher List Only' {4}
+			'Publisher List' {5}
+			'Publisher List and Microsoft Only' {6}
+			'Publisher List and Microsoft' {7}
+			default {-1}
+		}
+ 
+#Prepare output file path values
+#Be sure the XML path variable ends with a backslash
+If ($XmlFilePath.EndsWith('\') -ne $true)
+{
+	$XmlFilePath += '\';
+}
+ 
+#Be sure the Log file path is defined and ends with a backslash or set it value to the XML path
+If(!$LogFilePath)
+{
+	$LogFilePath = $XmlFilePath;
+}
+If ($LogFilePath.EndsWith('\') -ne $true)
+{
+	$LogFilePath += '\';
+}
+#endregion WORKING VARIABLES
+#endregion VARIABLES
+ 
+#region FUNCTIONS
+Function Add-LogEntry
+{
+Param
+(
+	$LineValue
+)
+	$LogStoreLineCount = ($LogStore.Count + 1);
+	$LogStore[$LogStoreLineCount] += $LineValue;
+};
+ 
+Function SqlCodeBlock
+{
+@"
+SET NOCOUNT ON;
+ 
+DECLARE
+	@ColumnList nvarchar(4000)
+	,@GroupByList nvarchar(4000)
+	,@GroupBy nvarchar(4000)
+	,@QualifiedEntity nvarchar(150)
+	,@SchemaDefault nvarchar(128)
+	,@EntityRow int
+	,@EntityRowMax int
+	,@EntityId int
+	,@EntitySchema nvarchar(128)
+	,@EntityName nvarchar(128)
+	,@EntityXMLName nvarchar(128)
+	,@EntityType nvarchar(2)
+	,@SqlCommand nvarchar(4000)
+	,@SchemaId int
+	,@SchemaName nvarchar(128)
+	,@Filter nvarchar(4000)
+	,@FilterRow int
+	,@FilterRowMax int
+	,@FilterVersion int
+	,@GroupConnect nvarchar(100)
+	,@ItemConnect nvarchar(100)
+	,@FilterGroup nvarchar(100)
+	,@SQLFilter nvarchar(4000)
+	,@SetSelectable bit
+	,@DataOriginName nvarchar(128)
+	,@DataOriginScriptVersion nvarchar(20)
+	,@PrimarySourceTool nvarchar(255)
+	,@PrimarySourceToolVersion nvarchar(255)
+	,@FileNamePrefix nvarchar(255);
+ 
+SET @EntityRowMax = 32;
+SET @FilterRowMax = 15;
+SET @FilterVersion = 1;
+SET @DataOriginName = N'Map XML';
+SET @DataOriginScriptVersion = N'11';
+SET @PrimarySourceTool = N'MAP Toolkit';
+SET @PrimarySourceToolVersion = N'11.0.101';
+SET @FileNamePrefix = N'map';
+ 
+IF OBJECT_ID('tempdb..#ResultSet') IS NOT NULL
+BEGIN
+	DROP TABLE #ResultSet;
+END
+ 
+IF OBJECT_ID('tempdb..#EntitySelect') IS NOT NULL
+BEGIN
+	DROP TABLE #EntitySelect;
+END
+ 
+IF OBJECT_ID('tempdb..#ColumnSelect') IS NOT NULL
+BEGIN
+	DROP TABLE #ColumnSelect;
+END
+ 
+IF OBJECT_ID('tempdb..#ColumnFilter') IS NOT NULL
+BEGIN
+	DROP TABLE #ColumnFilter;
+END
+CREATE TABLE #ResultSet
+(
+	[ResultRow] int IDENTITY(1,1) NOT NULL
+	,[ResultType] nvarchar(50) NOT NULL
+	,[TableName] nvarchar(128) NULL
+	,[ResultString] nvarchar(max) NULL
+);
+ 
+CREATE TABLE #EntitySelect
+(
+	[EntityRow] int NOT NULL
+	,[EntityId] int NOT NULL
+	,[EntitySchema] nvarchar(128) NOT NULL
+	,[EntityName] nvarchar(128) NOT NULL
+	,[EntityXMLName] nvarchar(128) NOT NULL
+	,[EntityType] nvarchar(2) NOT NULL
+);
+ 
+CREATE TABLE #ColumnSelect
+(
+	[SelectRow] int NOT NULL
+	,[EntityId] int NOT NULL
+	,[ColumnName] nvarchar(128) NOT NULL
+	,[ColumnSelect] nvarchar(1000) NOT NULL
+	,[SkipExistsCheck] bit NOT NULL
+	,[GroupBy] bit NOT NULL
+);
+ 
+CREATE TABLE #ColumnFilter
+(
+	[SelectRow] int NOT NULL
+	,[EntityId] int NOT NULL
+	,[ItemConnector] nvarchar(10) NOT NULL
+	,[FilterVersion] int NOT NULL 
+	,[FilterGroup] int NOT NULL
+	,[FilterGroupConnect] nvarchar(10) NOT NULL
+	,[ColumnName] nvarchar(128) NOT NULL
+	,[ColumnFilter] nvarchar(500) NOT NULL
+);
+ 
+INSERT INTO
+	#ResultSet
+	(
+		[ResultType]
+		,[ResultString]
+	)
+	VALUES
+	(
+		N'DataOriginName'
+		,@DataOriginName
+	);
+ 
+INSERT INTO
+	#ResultSet
+	(
+		[ResultType]
+		,[ResultString]
+	)
+	VALUES
+	(
+		N'DataOriginScriptVersion'
+		,@DataOriginScriptVersion
+	);
+ 
+INSERT INTO
+	#ResultSet
+	(
+		[ResultType]
+		,[ResultString]
+	)
+	VALUES
+	(
+		N'PrimarySourceTool'
+		,@PrimarySourceTool
+	);
+ 
+INSERT INTO
+	#ResultSet
+	(
+		[ResultType]
+		,[ResultString]
+	)
+	VALUES
+	(
+		N'PrimarySourceToolVersion'
+		,@PrimarySourceToolVersion
+	);
+ 
+INSERT INTO
+	#ResultSet
+	(
+		[ResultType]
+		,[ResultString]
+	)
+	VALUES
+	(
+		N'FileNamePrefix'
+		,@FileNamePrefix
+	);
+ 
+INSERT INTO
+	#ResultSet
+	(
+		[ResultType]
+		,[ResultString]
+	)
+	VALUES
+	(
+		N'EntityCount'
+		,@EntityRowMax
+	);
+ 
+INSERT INTO
+	 #EntitySelect
+(
+	[EntityRow]
+	,[EntityId]
+	,[EntitySchema]
+	,[EntityName]
+	,[EntityXMLName]
+	,[EntityType]
+)
+SELECT 1, 176, N'UT_Exchange_Inventory', N'AdActiveSync', N'AdActiveSync', N'U'
+UNION SELECT 2, 48, N'Core_Inventory', N'AdDiscoveredDevices', N'AdDiscoveredDevices', N'U'
+UNION SELECT 3, 46, N'UT_ActiveDaU_Inventory', N'AdDiscoveredUsers', N'AdDiscoveredUsers', N'U'
+UNION SELECT 4, 178, N'UT_Exchange_Inventory', N'AdElcFolders', N'AdElcFolders', N'U'
+UNION SELECT 5, 179, N'UT_Exchange_Inventory', N'AdMailboxItems', N'AdMailboxItems', N'U'
+UNION SELECT 6, 177, N'UT_Exchange_Inventory', N'AdPremiumJournaling', N'AdPremiumJournaling', N'U'
+UNION SELECT 7, 175, N'UT_Exchange_Inventory', N'AdRoots', N'AdRoots', N'U'
+UNION SELECT 8, 44, N'UT_Exchange_Inventory', N'AdServers', N'AdServers', N'U'
+UNION SELECT 9, 183, N'UT_SharePoint_Inventory', N'ConfigDbDsn', N'ConfigDbDsn', N'U'
+UNION SELECT 10, 182, N'SqlServer_Inventory', N'DataBaseFileGroup', N'DataBaseFileGroup', N'U'
+UNION SELECT 11, 181, N'SqlServer_Inventory', N'DataBaseProperties', N'DataBaseProperties', N'U'
+UNION SELECT 12, 180, N'SqlServer_Inventory', N'DatabasesCounters', N'DatabasesCounters', N'U'
+UNION SELECT 13, 45, N'Core_Inventory', N'Devices', N'Devices', N'U'
+UNION SELECT 14, 49, N'IE_Inventory', N'DeviceUserProfile', N'DeviceUserProfile', N'U'
+UNION SELECT 15, 184, N'UT_SharePoint_Inventory', N'Edition', N'Edition', N'U'
+UNION SELECT 16, 53, N'VMware_Inventory', N'Guest', N'Guest', N'U'
+UNION SELECT 17, 52, N'VMware_Inventory', N'Host', N'Host', N'U'
+UNION SELECT 18, 50, N'SqlServer_Inventory', N'Inventory', N'Inventory', N'U'
+UNION SELECT 19, 51, N'WinServer_Inventory', N'MSClusterCluster', N'MSClusterCluster', N'U'
+UNION SELECT 20, 43, N'Win_Inventory', N'NetworkAdapters', N'NetworkAdapters', N'U'
+UNION SELECT 21, 36, N'Win_Inventory', N'OemData', N'OemData', N'U'
+UNION SELECT 22, 35, N'Win_Inventory', N'Processors', N'Processors', N'U'
+UNION SELECT 23, 34, N'Win_Inventory', N'Products', N'Products', N'U'
+UNION SELECT 24, 47, N'Win_Inventory', N'ProductsUninstall', N'ProductsUninstall', N'U'
+UNION SELECT 25, 32, N'Win_Inventory', N'Services', N'Services', N'U'
+UNION SELECT 26, 33, N'Win_Inventory', N'SoftwareLicensingProducts', N'SoftwareLicensingProducts', N'U'
+UNION SELECT 27, 37, N'SqlServer_Assessment', N'SqlInstances', N'SqlInstances', N'U'
+UNION SELECT 28, 41, N'UT_Core', N'UsageDevices', N'UsageDevices', N'U'
+UNION SELECT 29, 42, N'UT_Core', N'UsageRecordEvents', N'UsageRecordEvents', N'U'
+UNION SELECT 30, 40, N'UT_Core', N'UsageRecords', N'UsageRecords', N'U'
+UNION SELECT 31, 39, N'UT_Core', N'UsageServiceInstances', N'UsageServiceInstances', N'U'
+UNION SELECT 32, 38, N'UT_Core', N'UsageUsers', N'UsageUsers', N'U';
+ 
+INSERT INTO
+	 #ColumnSelect
+(
+	[SelectRow]
+	,[EntityId]
+	,[ColumnName]
+	,[ColumnSelect]
+	,[SkipExistsCheck]
+	,[GroupBy]
+)
+SELECT 1, 176, N'CreateDatetime', N'CONVERT(nvarchar(23), [CreateDatetime], 126) AS [CreateDatetime]', 0, 0
+UNION SELECT 2, 176, N'DistinguishedName', N'[DistinguishedName] AS [DistinguishedName]', 0, 0
+UNION SELECT 3, 176, N'MsExchMobileAdditionalFlags', N'[MsExchMobileAdditionalFlags] AS [MsExchMobileAdditionalFlags]', 0, 0
+UNION SELECT 4, 176, N'MsExchMobileAllowBluetooth', N'[MsExchMobileAllowBluetooth] AS [MsExchMobileAllowBluetooth]', 0, 0
+UNION SELECT 5, 176, N'MsExchMobileApprovedApplicationList', N'[MsExchMobileApprovedApplicationList] AS [MsExchMobileApprovedApplicationList]', 0, 0
+UNION SELECT 6, 176, N'MsExchMobileFlags', N'[MsExchMobileFlags] AS [MsExchMobileFlags]', 0, 0
+UNION SELECT 7, 176, N'MsExchVersion', N'[MsExchVersion] AS [MsExchVersion]', 0, 0
+UNION SELECT 8, 176, N'Name', N'[Name] AS [Name]', 0, 0
+UNION SELECT 9, 176, N'ObjectGuid', N'[ObjectGuid] AS [ObjectGuid]', 0, 0
+UNION SELECT 10, 48, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 11, 48, N'DistinguishedName', N'[DistinguishedName] AS [DistinguishedName]', 0, 0
+UNION SELECT 12, 48, N'LastLogon', N'CONVERT(nvarchar(23), [LastLogon], 126) AS [LastLogon]', 0, 0
+UNION SELECT 13, 48, N'lastLogonTimestamp', N'CONVERT(nvarchar(23), [lastLogonTimestamp], 126) AS [lastLogonTimestamp]', 0, 0
+UNION SELECT 14, 48, N'pwdLastSet', N'CONVERT(nvarchar(23), [pwdLastSet], 126) AS [pwdLastSet]', 0, 0
+UNION SELECT 15, 46, N'Cn', N'[Cn] AS [Cn]', 0, 0
+UNION SELECT 16, 46, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 17, 46, N'DistinguishedName', N'[DistinguishedName] AS [DistinguishedName]', 0, 0
+UNION SELECT 18, 46, N'IsNormalAccount', N'[IsNormalAccount] AS [IsNormalAccount]', 0, 0
+UNION SELECT 19, 46, N'LastLogon', N'CONVERT(nvarchar(23), [LastLogon], 126) AS [LastLogon]', 0, 0
+UNION SELECT 20, 46, N'LastLogonTimestamp', N'CONVERT(nvarchar(23), [LastLogonTimeStamp], 126) AS [LastLogonTimestamp]', 0, 0
+UNION SELECT 21, 46, N'LoginName', N'[LoginName] AS [LoginName]', 0, 0
+UNION SELECT 22, 46, N'NetBiosDomain', N'[NetBiosDomain] AS [NetBiosDomain]', 0, 0
+UNION SELECT 23, 46, N'ObjectSid', N'[ObjectSid] AS [ObjectSid]', 0, 0
+UNION SELECT 24, 46, N'PwdLastSet', N'CONVERT(nvarchar(23), [PwdLastSet], 126) AS [PwdLastSet]', 0, 0
+UNION SELECT 25, 46, N'SamAccountName', N'[SamAccountName] AS [SamAccountName]', 0, 0
+UNION SELECT 26, 178, N'CreateDatetime', N'CONVERT(nvarchar(23), [CreateDatetime], 126) AS [CreateDatetime]', 0, 0
+UNION SELECT 27, 178, N'DistinguishedName', N'[DistinguishedName] AS [DistinguishedName]', 0, 0
+UNION SELECT 28, 178, N'MsExchElcFolderBL', N'[MsExchElcFolderBL] AS [MsExchElcFolderBL]', 0, 0
+UNION SELECT 29, 178, N'MsExchElcFolderName', N'[MsExchElcFolderName] AS [MsExchElcFolderName]', 0, 0
+UNION SELECT 30, 178, N'MsExchElcFolderType', N'[MsExchElcFolderType] AS [MsExchElcFolderType]', 0, 0
+UNION SELECT 31, 178, N'MsExchVersion', N'[MsExchVersion] AS [MsExchVersion]', 0, 0
+UNION SELECT 32, 178, N'ObjectGuid', N'[ObjectGuid] AS [ObjectGuid]', 0, 0
+UNION SELECT 33, 179, N'CreateDatetime', N'CONVERT(nvarchar(23), [CreateDatetime], 126) AS [CreateDatetime]', 0, 0
+UNION SELECT 34, 179, N'HomeMDB', N'[HomeMDB] AS [HomeMDB]', 0, 0
+UNION SELECT 35, 179, N'Mail', N'[Mail] AS [Mail]', 0, 0
+UNION SELECT 36, 179, N'MsDSPrincipalName', N'[MsDSPrincipalName] AS [MsDSPrincipalName]', 0, 0
+UNION SELECT 37, 179, N'MsExchHomeServerName', N'[MsExchHomeServerName] AS [MsExchHomeServerName]', 0, 0
+UNION SELECT 38, 179, N'MsExchVersion', N'[MsExchVersion] AS [MsExchVersion]', 0, 0
+UNION SELECT 39, 179, N'ObjectGuid', N'[ObjectGuid] AS [ObjectGuid]', 0, 0
+UNION SELECT 40, 179, N'UsesActiveSync', N'[UsesActiveSync] AS [UsesActiveSync]', 0, 0
+UNION SELECT 41, 179, N'UsesJournaling', N'[UsesJournaling] AS [UsesJournaling]', 0, 0
+UNION SELECT 42, 179, N'UsesManagedFolders', N'[UsesManagedFolders] AS [UsesManagedFolders]', 0, 0
+UNION SELECT 43, 179, N'UsesUnifiedMessaging', N'[UsesUnifiedMessaging] AS [UsesUnifiedMessaging]', 0, 0
+UNION SELECT 44, 177, N'CreateDatetime', N'CONVERT(nvarchar(23), [CreateDatetime], 126) AS [CreateDatetime]', 0, 0
+UNION SELECT 45, 177, N'DistinguishedName', N'[DistinguishedName] AS [DistinguishedName]', 0, 0
+UNION SELECT 46, 177, N'MsExchTransportRuleXml', N'[MsExchTransportRuleXml] AS [MsExchTransportRuleXml]', 0, 0
+UNION SELECT 47, 177, N'MsExchVersion', N'[MsExchVersion] AS [MsExchVersion]', 0, 0
+UNION SELECT 48, 177, N'Name', N'[Name] AS [Name]', 0, 0
+UNION SELECT 49, 177, N'ObjectGuid', N'[ObjectGuid] AS [ObjectGuid]', 0, 0
+UNION SELECT 50, 175, N'CreateDatetime', N'CONVERT(nvarchar(23), [CreateDatetime], 126) AS [CreateDatetime]', 0, 0
+UNION SELECT 51, 175, N'DefaultNamingContext', N'[DefaultNamingContext] AS [DefaultNamingContext]', 0, 0
+UNION SELECT 52, 175, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 53, 175, N'RootDomainNamingContext', N'[RootDomainNamingContext] AS [RootDomainNamingContext]', 0, 0
+UNION SELECT 54, 44, N'CreateDatetime', N'CONVERT(nvarchar(23), [CreateDatetime], 126) AS [CreateDatetime]', 0, 0
+UNION SELECT 55, 44, N'Enterprise', N'[Enterprise] AS [Enterprise]', 0, 0
+UNION SELECT 56, 44, N'MergedVersionNumber', N'[MergedVersionNumber] AS [MergedVersionNumber]', 0, 0
+UNION SELECT 57, 44, N'Name', N'[Name] AS [Name]', 0, 0
+UNION SELECT 58, 44, N'ObjectGuid', N'[ObjectGuid] AS [ObjectGuid]', 0, 0
+UNION SELECT 59, 183, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 60, 183, N'Dsn', N'[Dsn] AS [Dsn]', 0, 0
+UNION SELECT 61, 183, N'Version', N'[Version] AS [Version]', 0, 0
+UNION SELECT 62, 182, N'DbName', N'[DbName] AS [DbName]', 0, 0
+UNION SELECT 63, 182, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 64, 182, N'Fileid', N'[Fileid] AS [Fileid]', 0, 0
+UNION SELECT 65, 182, N'ServerName', N'[ServerName] AS [ServerName]', 0, 0
+UNION SELECT 66, 182, N'Size', N'[Size] AS [Size]', 0, 0
+UNION SELECT 67, 182, N'Usage', N'[Usage] AS [Usage]', 0, 0
+UNION SELECT 68, 181, N'DbName', N'[DbName] AS [DbName]', 0, 0
+UNION SELECT 69, 181, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 70, 181, N'ServerName', N'[ServerName] AS [ServerName]', 0, 0
+UNION SELECT 71, 181, N'Size', N'[Size] AS [Size]', 0, 0
+UNION SELECT 72, 180, N'DatabaseName', N'[DatabaseName] AS [DatabaseName]', 0, 0
+UNION SELECT 73, 180, N'DataFilesSizeKB', N'[DataFilesSizeKB] AS [DataFilesSizeKB]', 0, 0
+UNION SELECT 74, 180, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 75, 180, N'Instance', N'[Instance] AS [Instance]', 0, 0
+UNION SELECT 76, 180, N'LogFilesSizeKB', N'[LogFilesSizeKB] AS [LogFilesSizeKB]', 0, 0
+UNION SELECT 77, 45, N'ActivationRequired', N'[ActivationRequired] AS [ActivationRequired]', 0, 0
+UNION SELECT 78, 45, N'AdFullyQualifiedDomainName', N'[AdFullyQualifiedDomainName] AS [AdFullyQualifiedDomainName]', 0, 0
+UNION SELECT 79, 45, N'AdOsVersion', N'[AdOsVersion] AS [AdOsVersion]', 0, 0
+UNION SELECT 80, 45, N'BiosReleaseDate', N'CONVERT(nvarchar(23), [BiosReleaseDate], 126) AS [BiosReleaseDate]', 0, 0
+UNION SELECT 81, 45, N'BiosSerialNumber', N'[BiosSerialNumber] AS [BiosSerialNumber]', 0, 0
+UNION SELECT 82, 45, N'ComputerSystemName', N'[ComputerSystemName] AS [ComputerSystemName]', 0, 0
+UNION SELECT 83, 45, N'CreateCollectorId', N'[CreateCollectorId] AS [CreateCollectorId]', 0, 0
+UNION SELECT 84, 45, N'CreateDatetime', N'CONVERT(nvarchar(23), [CreateDatetime], 126) AS [CreateDatetime]', 0, 0
+UNION SELECT 85, 45, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 86, 45, N'DnsHostName', N'[DnsHostName] AS [DnsHostName]', 0, 0
+UNION SELECT 87, 45, N'EnclosureManufacturer', N'[EnclosureManufacturer] AS [EnclosureManufacturer]', 0, 0
+UNION SELECT 88, 45, N'EnclosureSerialNumber', N'[EnclosureSerialNumber] AS [EnclosureSerialNumber]', 0, 0
+UNION SELECT 89, 45, N'HostNameForVm', N'[HostNameForVm] AS [HostNameForVm]', 0, 0
+UNION SELECT 90, 45, N'Model', N'[Model] AS [Model]', 0, 0
+UNION SELECT 91, 45, N'NetServerEnumOsVersion', N'[NetServerEnumOsVersion] AS [NetServerEnumOsVersion]', 0, 0
+UNION SELECT 92, 45, N'NumberOfLogicalProcessors', N'[NumberOfLogicalProcessors] AS [NumberOfLogicalProcessors]', 0, 0
+UNION SELECT 93, 45, N'OperatingSystem', N'[OperatingSystem] AS [OperatingSystem]', 0, 0
+UNION SELECT 94, 45, N'OperatingSystemSku', N'[OperatingSystemSku] AS [OperatingSystemSku]', 0, 0
+UNION SELECT 95, 45, N'OsCaption', N'[OsCaption] AS [OsCaption]', 0, 0
+UNION SELECT 96, 45, N'OsInstallDate', N'CONVERT(nvarchar(23), [OsInstallDate], 126) AS [OsInstallDate]', 0, 0
+UNION SELECT 97, 45, N'OsProductSuite', N'[OsProductSuite] AS [OsProductSuite]', 0, 0
+UNION SELECT 98, 45, N'WmiOsVersion', N'[WmiOsVersion] AS [WmiOsVersion]', 0, 0
+UNION SELECT 99, 45, N'WmiScanResult', N'[WmiScanResult] AS [WmiScanResult]', 0, 0
+UNION SELECT 100, 49, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 101, 49, N'UserDnsDomain', N'[UserDnsDomain] AS [UserDnsDomain]', 0, 0
+UNION SELECT 102, 49, N'UserSid', N'[UserSid] AS [UserSid]', 0, 0
+UNION SELECT 103, 184, N'BuildVersion', N'[BuildVersion] AS [BuildVersion]', 0, 0
+UNION SELECT 104, 184, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 105, 53, N'CreateDatetime', N'CONVERT(nvarchar(23), [CreateDatetime], 126) AS [CreateDatetime]', 0, 0
+UNION SELECT 106, 53, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 107, 53, N'GuestHostName', N'[GuestHostName] AS [GuestHostName]', 0, 0
+UNION SELECT 108, 53, N'MobRef', N'[MobRef] AS [MobRef]', 0, 0
+UNION SELECT 109, 53, N'RunTimeHost', N'[RunTimeHost] AS [RunTimeHost]', 0, 0
+UNION SELECT 110, 53, N'SourceApiType', N'[SourceApiType] AS [SourceApiType]', 0, 0
+UNION SELECT 111, 53, N'VmwareName', N'[VmwareName] AS [VmwareName]', 0, 0
+UNION SELECT 112, 52, N'CreateDatetime', N'CONVERT(nvarchar(23), [CreateDatetime], 126) AS [CreateDatetime]', 0, 0
+UNION SELECT 113, 52, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 114, 52, N'DnsConfigDomainName', N'[DnsConfigDomainName] AS [DnsConfigDomainName]', 0, 0
+UNION SELECT 115, 52, N'DnsConfigHostName', N'[DnsConfigHostName] AS [DnsConfigHostName]', 0, 0
+UNION SELECT 116, 52, N'HardwareCpuModel', N'[HardwareCpuModel] AS [HardwareCpuModel]', 0, 0
+UNION SELECT 117, 52, N'HardwareModel', N'[HardwareModel] AS [HardwareModel]', 0, 0
+UNION SELECT 118, 52, N'HardwareNumCpuCores', N'[HardwareNumCpuCores] AS [HardwareNumCpuCores]', 0, 0
+UNION SELECT 119, 52, N'HardwareNumCpuPkgs', N'[HardwareNumCpuPkgs] AS [HardwareNumCpuPkgs]', 0, 0
+UNION SELECT 120, 52, N'HardwareNumCpuThreads', N'[HardwareNumCpuThreads] AS [HardwareNumCpuThreads]', 0, 0
+UNION SELECT 121, 52, N'HardwareVendor', N'[HardwareVendor] AS [HardwareVendor]', 0, 0
+UNION SELECT 122, 52, N'MobRef', N'[MobRef] AS [MobRef]', 0, 0
+UNION SELECT 123, 52, N'ProductFullName', N'[ProductFullName] AS [ProductFullName]', 0, 0
+UNION SELECT 124, 52, N'ProductProductLineId', N'[ProductProductLineId] AS [ProductProductLineId]', 0, 0
+UNION SELECT 125, 52, N'ProductVersion', N'[ProductVersion] AS [ProductVersion]', 0, 0
+UNION SELECT 126, 52, N'SourceApiType', N'[SourceApiType] AS [SourceApiType]', 0, 0
+UNION SELECT 127, 52, N'VmwareName', N'[VmwareName] AS [VmwareName]', 0, 0
+UNION SELECT 128, 50, N'Clustered', N'[Clustered] AS [Clustered]', 0, 0
+UNION SELECT 129, 50, N'CreateDatetime', N'CONVERT(nvarchar(23), [CreateDatetime], 126) AS [CreateDatetime]', 0, 0
+UNION SELECT 130, 50, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 131, 50, N'Fileversion', N'[Fileversion] AS [Fileversion]', 0, 0
+UNION SELECT 132, 50, N'Instanceid', N'[Instanceid] AS [Instanceid]', 0, 0
+UNION SELECT 133, 50, N'InstanceName', N'[InstanceName] AS [InstanceName]', 0, 0
+UNION SELECT 134, 50, N'Servicename', N'[Servicename] AS [Servicename]', 0, 0
+UNION SELECT 135, 50, N'SkuName', N'[SkuName] AS [SkuName]', 0, 0
+UNION SELECT 136, 50, N'Uid', N'[Uid] AS [Uid]', 0, 0
+UNION SELECT 137, 50, N'Version', N'[Version] AS [Version]', 0, 0
+UNION SELECT 138, 50, N'VsName', N'[VsName] AS [VsName]', 0, 0
+UNION SELECT 139, 51, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 140, 51, N'Name', N'[Name] AS [Name]', 0, 0
+UNION SELECT 141, 43, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 142, 43, N'MacAddress', N'[MacAddress] AS [MacAddress]', 0, 0
+UNION SELECT 143, 43, N'Uid', N'[Uid] AS [Uid]', 0, 0
+UNION SELECT 144, 36, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 145, 36, N'HasMsdmTable', N'[HasMsdmTable] AS [HasMsdmTable]', 0, 0
+UNION SELECT 146, 36, N'SlicTable', N'[SlicTable] AS [SlicTable]', 0, 0
+UNION SELECT 147, 35, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 148, 35, N'Name', N'[Name] AS [Name]', 0, 0
+UNION SELECT 149, 35, N'NumberOfCores', N'[NumberOfCores] AS [NumberOfCores]', 0, 0
+UNION SELECT 150, 35, N'NumberOfLogicalProcessors', N'[NumberOfLogicalProcessors] AS [NumberOfLogicalProcessors]', 0, 0
+UNION SELECT 151, 35, N'ProcessorId', N'[ProcessorId] AS [ProcessorId]', 0, 0
+UNION SELECT 152, 35, N'SocketDesignation', N'[SocketDesignation] AS [SocketDesignation]', 0, 0
+UNION SELECT 153, 35, N'Uid', N'[Uid] AS [Uid]', 0, 0
+UNION SELECT 154, 34, N'Caption', N'[Caption] AS [Caption]', 0, 0
+UNION SELECT 155, 34, N'CreateDatetime', N'CONVERT(nvarchar(23), [CreateDatetime], 126) AS [CreateDatetime]', 0, 0
+UNION SELECT 156, 34, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 157, 34, N'IdentifyingNumber', N'[IdentifyingNumber] AS [IdentifyingNumber]', 0, 0
+UNION SELECT 158, 34, N'InstallDate', N'CONVERT(nvarchar(23), [InstallDate], 126) AS [InstallDate]', 0, 0
+UNION SELECT 159, 34, N'Uid', N'[Uid] AS [Uid]', 0, 0
+UNION SELECT 160, 34, N'Vendor', N'[Vendor] AS [Vendor]', 0, 0
+UNION SELECT 161, 34, N'Version', N'[Version] AS [Version]', 0, 0
+UNION SELECT 162, 47, N'CreateCollectorId', N'[CreateCollectorId] AS [CreateCollectorId]', 0, 0
+UNION SELECT 163, 47, N'CreateDatetime', N'CONVERT(nvarchar(23), [CreateDatetime], 126) AS [CreateDatetime]', 0, 0
+UNION SELECT 164, 47, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 165, 47, N'DisplayName', N'[DisplayName] AS [DisplayName]', 0, 0
+UNION SELECT 166, 47, N'DisplayVersion', N'[DisplayVersion] AS [DisplayVersion]', 0, 0
+UNION SELECT 167, 47, N'InstallDate', N'[InstallDate] AS [InstallDate]', 0, 0
+UNION SELECT 168, 47, N'ProductCode', N'[ProductCode] AS [ProductCode]', 0, 0
+UNION SELECT 169, 47, N'Publisher', N'[Publisher] AS [Publisher]', 0, 0
+UNION SELECT 170, 32, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 171, 32, N'Name', N'[Name] AS [Name]', 0, 0
+UNION SELECT 172, 32, N'State', N'[State] AS [State]', 0, 0
+UNION SELECT 173, 32, N'Uid', N'[Uid] AS [Uid]', 0, 0
+UNION SELECT 174, 33, N'Description', N'[Description] AS [Description]', 0, 0
+UNION SELECT 175, 33, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 176, 33, N'ID', N'[ID] AS [ID]', 0, 0
+UNION SELECT 177, 33, N'Name', N'[Name] AS [Name]', 0, 0
+UNION SELECT 178, 37, N'Clustered', N'[Clustered] AS [Clustered]', 0, 0
+UNION SELECT 179, 37, N'CreateDatetime', N'CONVERT(nvarchar(23), CURRENT_TIMESTAMP, 126) AS [CreateDatetime]', 1, 0
+UNION SELECT 180, 37, N'DeviceNumber', N'[DeviceNumber] AS [DeviceNumber]', 0, 0
+UNION SELECT 181, 37, N'Instanceid', N'[Instanceid] AS [InstanceId]', 0, 0
+UNION SELECT 182, 37, N'InstanceName', N'[InstanceName] AS [InstanceName]', 0, 0
+UNION SELECT 183, 37, N'Servicename', N'[Servicename] AS [Servicename]', 0, 0
+UNION SELECT 184, 37, N'Skuname', N'[Skuname] AS [Skuname]', 0, 0
+UNION SELECT 185, 37, N'VersionCoalesce', N'[VersionCoalesce] AS [VersionCoalesce]', 0, 0
+UNION SELECT 186, 37, N'Vsname', N'[Vsname] AS [Vsname]', 0, 0
+UNION SELECT 187, 41, N'DeviceId', N'[DeviceId] AS [DeviceId]', 0, 0
+UNION SELECT 188, 41, N'DeviceName', N'[DeviceName] AS [DeviceName]', 0, 0
+UNION SELECT 189, 41, N'DomainName', N'[DomainName] AS [DomainName]', 0, 0
+UNION SELECT 190, 42, N'UsageDate', N'CONVERT(nvarchar(23), [UsageDate], 126) AS [UsageDate]', 0, 0
+UNION SELECT 191, 42, N'UsageId', N'[UsageId] AS [UsageId]', 0, 0
+UNION SELECT 192, 40, N'ClientDeviceId', N'[ClientDeviceId] AS [ClientDeviceId]', 0, 0
+UNION SELECT 193, 40, N'ImpersonatedUserId', N'[ImpersonatedUserId] AS [ImpersonatedUserId]', 0, 0
+UNION SELECT 194, 40, N'ServiceInstanceId', N'[ServiceInstanceId] AS [ServiceInstanceId]', 0, 0
+UNION SELECT 195, 40, N'UsageId', N'[UsageId] AS [UsageId]', 0, 0
+UNION SELECT 196, 39, N'InstanceName', N'[InstanceName] AS [InstanceName]', 0, 0
+UNION SELECT 197, 39, N'ServerDeviceId', N'[ServerDeviceId] AS [ServerDeviceId]', 0, 0
+UNION SELECT 198, 39, N'ServiceEdition', N'[ServiceEdition] AS [ServiceEdition]', 0, 0
+UNION SELECT 199, 39, N'ServiceInstanceId', N'[ServiceInstanceId] AS [ServiceInstanceId]', 0, 0
+UNION SELECT 200, 39, N'ServiceTypeId', N'[ServiceTypeId] AS [ServiceTypeId]', 0, 0
+UNION SELECT 201, 38, N'DomainName', N'[DomainName] AS [DomainName]', 0, 0
+UNION SELECT 202, 38, N'UserId', N'[UserId] AS [UserId]', 0, 0
+UNION SELECT 203, 38, N'UserName', N'[UserName] AS [UserName]', 0, 0;
+ 
+INSERT INTO
+	 #ColumnFilter
+(
+	[SelectRow]
+	,[EntityId]
+	,[ColumnName]
+	,[ColumnFilter]
+	,[ItemConnector]
+	,[FilterVersion]
+	,[FilterGroup]
+	,[FilterGroupConnect]
+)
+SELECT 1, 179, N'MsExchRecipientDisplayType', N'MsExchRecipientDisplayType = 1073741824', N'OR', 1, 1, N'AND'
+UNION SELECT 2, 179, N'MsExchRecipientDisplayType', N'MsExchRecipientDisplayType IS NULL', N'OR', 1, 1, N'AND'
+UNION SELECT 3, 179, N'HomeMDB', N'HomeMDB IS NOT NULL', N'AND', 1, 2, N'AND'
+UNION SELECT 4, 179, N'SAMAccountName', N'SAMAccountName NOT LIKE ''%SM|_%'' ESCAPE ''|''', N'AND', 1, 2, N'AND'
+UNION SELECT 5, 179, N'SystemFlags', N'SystemFlags IS NULL', N'AND', 1, 2, N'AND'
+UNION SELECT 6, 34, N'Vendor', N'Vendor LIKE ''%citrix%''', N'OR', 4, 1, N'AND'
+UNION SELECT 7, 34, N'Vendor', N'Vendor LIKE ''%oracle%''', N'OR', 4, 1, N'AND'
+UNION SELECT 8, 34, N'Vendor', N'Vendor LIKE ''%red%hat%''', N'OR', 4, 1, N'AND'
+UNION SELECT 9, 34, N'Vendor', N'Vendor LIKE ''%Microsoft%''', N'OR', 2, 1, N'AND'
+UNION SELECT 10, 34, N'Vendor', N'Vendor LIKE ''%VMWare%''', N'OR', 4, 1, N'AND'
+UNION SELECT 11, 47, N'Publisher', N'Publisher LIKE ''%Microsoft%''', N'OR', 2, 1, N'AND'
+UNION SELECT 12, 47, N'Publisher', N'Publisher LIKE ''%VMWare%''', N'OR', 4, 1, N'AND'
+UNION SELECT 13, 47, N'Publisher', N'Publisher LIKE ''%citrix%''', N'OR', 4, 1, N'AND'
+UNION SELECT 14, 47, N'Publisher', N'Publisher LIKE ''%oracle%''', N'OR', 4, 1, N'AND'
+UNION SELECT 15, 47, N'Publisher', N'Publisher LIKE ''%red%hat%''', N'OR', 4, 1, N'AND';
+ 
+-- Loop through each Entity and build SELECT scripts.
+SET @EntityRow = 0;
+WHILE @EntityRow < @EntityRowMax
+BEGIN
+	SELECT
+		@EntityId = [EntityId]
+		,@EntitySchema = [EntitySchema]
+		,@EntityName = [EntityName]
+		,@EntityXMLName = [EntityXMLName]
+		,@EntityType = [EntityType]
+		,@EntityRow = [EntityRow]
+	FROM
+		#EntitySelect
+	WHERE
+		[EntityRow] = @EntityRow + 1;
+ 
+-- Validate Table Schema
+	SET @SchemaDefault = @EntitySchema;
+	SET @SchemaId =
+	CASE
+		WHEN (SELECT [Schema_Id] FROM [sys].[objects] WHERE [Name] = @EntityName AND SCHEMA_NAME([Schema_Id]) = @SchemaDefault) IS NOT NULL
+		THEN SCHEMA_ID(@SchemaDefault)
+		ELSE (SELECT TOP 1 [Schema_Id] FROM [sys].[objects] WHERE [Name] = @EntityName)
+	END;
+	SET @SchemaName = COALESCE(SCHEMA_NAME(@SchemaId), @SchemaDefault);
+ 
+	SET @ColumnList = NULL;
+	SET @GroupByList = NULL;
+	SET @Filter = NULL;
+	SET @QualifiedEntity = COALESCE((N'[' + @SchemaName + N'].'),N'') + N'[' + @EntityName + N']';
+	SET @EntityType = RTRIM(@EntityType);
+	SET @SQLFilter = N''; -- Include any filter conditions
+	SET @SetSelectable = 'FALSE';
+ 
+	INSERT INTO
+		#ResultSet
+	(
+		[ResultType]
+		,[ResultString]
+		)
+	VALUES
+	(
+		N'Log'
+		,N'Validating and generating SQL collection script for ' + @QualifiedEntity + N'.'
+	);
+ 
+	IF (@SchemaName <> @EntitySchema)
+		INSERT INTO
+			#ResultSet
+		(
+			[ResultType]
+			,[ResultString]
+		)
+		VALUES
+		(
+			N'Log'
+			,CHAR(9) + N'Default Schema value not found changed from ' + @EntitySchema + N' To ' + @SchemaName + N'.'
+		);
+ 
+-- Verify specified Entity EXISTS and contains SELECTable columns
+	IF EXISTS (SELECT * FROM [sys].[objects] WHERE [schema_id] = @SchemaId AND [name] = @EntityName AND [type] = @EntityType)
+	BEGIN
+ 
+-- Check for and log missing columns
+		SELECT
+			@ColumnList = STUFF(
+				(SELECT
+					N', ' + [L].[ColumnName] 
+				FROM
+					#ColumnSelect AS [L]
+				INNER JOIN
+					#EntitySelect AS [E]
+				ON
+					[E].[EntityId] = [L].[EntityId]
+				LEFT OUTER JOIN
+					[sys].[columns] AS [C]
+				ON
+					[L].[ColumnName] COLLATE database_default = [C].[name]
+				LEFT OUTER JOIN
+					[sys].[objects] AS [T]
+				ON
+					[C].[object_id] = [T].[object_id]
+				AND
+					[T].[Name] = [E].[EntityName] COLLATE database_default
+				AND
+					[T].[schema_id] = @SchemaId
+				WHERE
+					[E].[EntityName] COLLATE database_default = @EntityName
+				AND
+					[L].[SkipExistsCheck] = 'FALSE'
+				AND
+					[C].[name] IS NULL
+				FOR XML PATH (N''))
+			, 1, 2, N'');
+ 
+		IF (@ColumnList IS NOT NULL)
+			INSERT INTO
+				#ResultSet
+			(
+				[ResultType]
+				,[ResultString]
+			)
+			VALUES
+			(
+				N'Log'
+				,CHAR(9) + N'List of missing columns - (' + @ColumnList + N').'
+			);
+ 
+-- Generate variable containing list of desired Attributes validated against sys.objects on the DB to avoid selecting missing columns.
+		SELECT
+			@ColumnList = STUFF(
+				(SELECT
+					N', ' + [L].[ColumnSelect] 
+				FROM
+					#ColumnSelect AS [L]
+				INNER JOIN
+					#EntitySelect AS [E]
+				ON
+					[E].[EntityId] = [L].[EntityId]
+				INNER JOIN
+					[sys].[columns] AS [C]
+				ON
+					[L].[ColumnName] COLLATE database_default = [C].[name]
+				INNER JOIN
+					[sys].[objects] AS [T]
+				ON
+					[C].[object_id] = [T].[object_id]
+				AND
+					[T].[Name] = [E].[EntityName] COLLATE database_default
+				AND
+					[T].[schema_id] = @SchemaId
+				WHERE
+					[E].[EntityName] COLLATE database_default = @EntityName
+				AND
+					[L].[SkipExistsCheck] = 'FALSE'
+				ORDER BY
+					[C].[column_id]
+				FOR XML PATH (N''))
+			, 1, 2, N'');
+ 
+		SELECT
+			@ColumnList = @ColumnList + 
+				COALESCE((SELECT
+					N', ' + [L].[ColumnSelect] 
+				FROM
+					#ColumnSelect AS [L]
+				INNER JOIN
+					#EntitySelect AS [E]
+				ON
+					[E].[EntityId] = [L].[EntityId]
+				WHERE
+					[E].[EntityName] COLLATE database_default = @EntityName
+				AND
+					[L].[SkipExistsCheck] = 'TRUE'
+				FOR XML PATH (N'')), N'');
+ 
+-- If at least one Attribute value is available to select set the SetSelectable variable TRUE
+		IF @ColumnList IS NOT NULL
+		BEGIN
+			SET @SetSelectable = 'TRUE';
+			SELECT
+				@GroupByList = STUFF(
+					(SELECT
+						N', ' + [L].[ColumnName] 
+					FROM
+						#ColumnSelect AS [L]
+					INNER JOIN
+						#EntitySelect AS [E]
+					ON
+						[E].[EntityId] = [L].[EntityId]
+					WHERE
+						[E].[EntityName] COLLATE database_default = @EntityName
+					AND
+						[L].[GroupBy] = 1
+					FOR XML PATH (N''))
+				, 1, 2, N'');
+ 
+-- If at least one Attribute value is available to group by clean up the list and set the Set Group By
+			IF @GroupByList IS NOT NULL
+				SET @GroupBy = N' GROUP BY ' + @GroupByList;
+			ELSE
+-- If no Attribute value is available, set a default to append no Filter condition
+				SET @GroupBy = N'';
+ 
+ 
+-- Check for and log missing columns in the Filter clause
+				SELECT @Filter = STUFF(
+					(SELECT
+						N', ' + [F].[ColumnName] 
+					FROM
+						#ColumnFilter AS [F]
+					INNER JOIN
+						#EntitySelect AS [E]
+					ON
+						[E].[EntityId] = [F].[EntityId]
+					LEFT OUTER JOIN
+						[sys].[columns] AS [C]
+					ON
+						[F].[ColumnName] COLLATE database_default = [C].[name]
+					LEFT OUTER JOIN
+						[sys].[objects] AS [T]
+					ON
+						[C].[object_id] = [T].[object_id]
+					AND
+						[E].[EntityName] COLLATE database_default = [T].[Name]
+					AND
+						[T].[schema_id] = @SchemaId
+					WHERE
+						[E].[EntityName] COLLATE database_default = @EntityName
+					AND
+						(@FilterVersion & [F].[FilterVersion]) = [F].[FilterVersion]
+					AND
+						[C].[name] IS NULL
+					FOR XML PATH (N''))
+				, 1, 2, N'');
+ 
+				IF (@Filter IS NOT NULL)
+					INSERT INTO
+						#ResultSet
+					(
+						[ResultType]
+						,[ResultString]
+					)
+					VALUES
+					(
+						N'Log'
+						,CHAR(9) + N'List of missing Filter columns - (' + @Filter + N').'
+					);
+ 
+				SET @Filter = N'';
+				SET @GroupConnect = N'';
+				SET @ItemConnect = N'';
+				SET @FilterGroup = 0;
+ 
+				SELECT @Filter = @Filter + (
+					CASE
+						WHEN @Filter = N''
+						THEN N' (' + REPLACE(COALESCE([F].[ColumnFilter], N''), N'<schemaname>', @SchemaName)
+						WHEN  @FilterGroup = [FilterGroup]
+						THEN N' ' + @ItemConnect + N' ' + REPLACE(COALESCE([F].[ColumnFilter], N''), N'<schemaname>', @SchemaName)
+					WHEN  @FilterGroup < [FilterGroup]
+					THEN  N') ' + @GroupConnect + N' (' + REPLACE(COALESCE([F].[ColumnFilter], N''), N'<schemaname>', @SchemaName)
+				END)
+					,@ItemConnect = [ItemConnector]
+					,@GroupConnect = [FilterGroupConnect]
+					,@FilterGroup = [FilterGroup]
+				FROM
+					#ColumnFilter AS [F]
+				INNER JOIN
+					#EntitySelect AS [E]
+				ON
+					[E].[EntityId] = [F].[EntityId]
+				INNER JOIN
+					[sys].[columns] AS [C]
+				ON
+					[F].[ColumnName] COLLATE database_default = [C].[name]
+				INNER JOIN
+					[sys].[objects] AS [T]
+				ON
+					[C].[object_id] = [T].[object_id]
+				AND
+					[E].[EntityName] COLLATE database_default = [T].[Name]
+				AND
+					[T].[schema_id] = @SchemaId
+				WHERE
+					[E].[EntityName] COLLATE database_default = @EntityName
+				AND
+					(@FilterVersion & [F].[FilterVersion]) = [F].[FilterVersion]
+				ORDER BY
+					[FilterGroup]
+			IF @Filter > N''
+				SET @SQLFilter = N' WHERE' + SUBSTRING(@Filter, 1, LEN (@Filter) - CASE WHEN RIGHT(@Filter, 5) = N') AND' THEN 4 WHEN RIGHT(@Filter, 4) = N') OR' THEN 3 ELSE 0 END) + N')';
+			ELSE
+				SET @SQLFilter = N'';
+			END
+			ELSE
+			BEGIN
+				INSERT INTO
+					#ResultSet
+				(
+					[ResultType]
+					,[ResultString]
+				)
+				VALUES
+				(
+					N'Log'
+					,CHAR(9) + N'No Selectable columns found in table.'
+				);
+			END
+	END
+	ELSE
+	BEGIN
+		INSERT INTO
+			#ResultSet
+		(
+			[ResultType]
+			,[ResultString]
+		)
+		VALUES
+		(
+			N'Log'
+			,CHAR(9) + N'Table does not exist.'
+		)
+	END
+ 
+--If the Entity EXISTS and has selectable rows generate the script to collect data.
+	IF @SetSelectable = 'TRUE'
+	BEGIN
+		SET @SqlCommand = N'SELECT ' + @ColumnList + N' FROM ' + @QualifiedEntity + N' WITH (NOLOCK)' + @SQLFilter + @GroupBy;
+ 
+		INSERT INTO
+			#ResultSet
+		(
+			[ResultType]
+			,[ResultString]
+		)
+		VALUES
+		(
+			N'Log'
+			,CHAR(9) + N'SQL script generated.'
+		)
+ 
+		INSERT INTO
+			#ResultSet
+		(
+			[ResultType]
+			,[TableName]
+			,[ResultString]
+		)
+		VALUES
+		(
+			N'Script'
+			,@EntityXMLName
+			,@SqlCommand
+		);
+	END
+	ELSE
+	BEGIN
+		INSERT INTO
+			#ResultSet
+		(
+			[ResultType]
+			,[ResultString]
+		)
+		VALUES
+		(
+			N'Log'
+			,CHAR(9) + N'Table has no Selectability. See prior Warning for more information. No Script created.'
+		);
+	END
+END
+ 
+--Return results of code generation.
+SELECT
+	[ResultRow]
+	,[ResultType]
+	,[TableName]
+	,[ResultString]
+FROM
+	#ResultSet;
+"@
+}
+#endregion FUNCTIONS
+ 
+#region PROGRAM MAIN
+Try
+{
+#region PREPROCESS VALIDATION
+# Perform initial validation checks before continuing
+	Add-LogEntry -LineValue $('Processing Begin: ' + $(Get-Date -format s).Replace('T',' '));
+ 
+#Capture the current parameter settings
+	Add-LogEntry -LineValue $($Tab+'List of parameter values used for this script execution');
+	Add-LogEntry -LineValue $($Tab+$Tab+'XmlFilePath = (' + $XmlFilePath + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'ServerName = (' + $ServerName + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'DatabaseName = (' + $DatabaseName + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'IntegratedSecurity = (' + $(If($IntegratedSecurity){'On'}Else{'Off'}) + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'Credential = (' + $(If($Credential){'Value Supplied'}Else{'Value Not Supplied'}) + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'ProgressDisplay = (' + $(If($ProgressDisplay){'On'}Else{'Off'}) + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'SuppressLogFile = (' + $(If($SuppressLogFile){'On'}Else{'Off'}) + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'LogFilePath = (' + $LogFilePath + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'FilterVersion = (' + $FilterVersion + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'xDTCall = (' + $(If($xDTCall){'On'}Else{'Off'}) + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'PSVersion = (' + $PSVersion + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'dotNetVersion = (' + $dotNetVersion + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'DataSource = (' + $DataSource + ')');
+	Add-LogEntry -LineValue $($Tab+$Tab+'AppVersion = (' + $AppVersion + ')');
+ 
+	Try
+	{
+		Add-LogEntry -LineValue $($Tab+'Validating parameters');
+# Validate that XML file path value is accessible
+		If ($(Test-Path $XmlFilePath) -eq $false)
+		{
+			$ErrorMessage = 'Could not access specified Xml File Path';
+		}
+# Validate that Log file path value is accessible if output not suppressed
+		ElseIf (!$SuppressLogFile -and ($(Test-Path $LogFilePath) -eq $false))
+		{
+			$ErrorMessage = 'Could not access specified Log File Path';
+		}
+# Validate that FilterSet value is not 0
+		ElseIf ($FilterSet -eq -1)
+		{
+			$ErrorMessage = 'Invalid FilterVersion specified';
+		}
+# Get Credentials if IntegratedSecurity was not select and script was not called by xDT
+		ElseIf (!$IntegratedSecurity -and !$Credential)
+		{
+# If call was initiated by xDT throw an error as it is responsible for collecting
+# credentials of setting IntegratedSecurity flag
+			If ($xDTCall)
+			{
+				$ErrorMessage = 'Valid SQL Server credentials required or IntegratedSecurity must be specified';
+			}
+			Else
+			{
+# Otherwise get them from the user
+				Add-LogEntry -LineValue $($Tab+'Getting user SQL Server Login information');
+				Try
+				{
+					If ($psversiontable.psversion.major -lt 3)
+					{
+						$Credential = Get-Credential;
+					}
+					Else
+					{
+						$Credential = Get-Credential -Message 'SQL Server database credentials';
+					}
+				}
+				Catch
+				{
+					$ErrorMessage = 'Valid SQL Server credentials required or IntegratedSecurity must be specified';
+				}
+			}
+		}
+	}
+	Catch
+	{
+		$ErrorMessage = $_.Exception.Message;
+	}
+ 
+	If (!$ErrorMessage -and !$IntegratedSecurity)
+	{
+		Add-LogEntry -LineValue $($Tab+'Validating SQL Server Login UserName entered');
+		If (!$Credential.UserName)
+		{
+			$ErrorMessage = 'Valid credentials required';
+		}
+		Else
+		{
+			$UserName = $Credential.UserName.TrimStart("\");
+			$Password = $Credential.GetNetworkCredential().Password;
+		}
+	}
+#endregion PREPROCESS VALIDATION
+ 
+#region GENERATE SCRIPTS
+# Build a database connection string
+	If (!$ErrorMessage)
+	{
+		Try
+		{
+			If ($IntegratedSecurity)
+			{
+				$ConnectionString = "Database=$DatabaseName; Server=$ServerName; Integrated Security=True; Persist Security Info=False";
+			}
+			Else
+			{
+				$ConnectionString =  "Database=$DatabaseName; Server=$ServerName; UID=$UserName; PWD=$Password; Persist Security Info=False;Integrated Security=False;";
+			}
+ 
+# Construct and open the Database Connection
+			Add-LogEntry -LineValue $($Tab+'Opening connection to Database');
+			$Connection = New-Object System.Data.SqlClient.SqlConnection;
+			$Connection.ConnectionString = $ConnectionString;
+			$Connection.Open();
+ 
+# Execute the ScriptBlock to generate the SQL collection scripts
+# The return set will also include Source specific processing information and log activity data.
+			Add-LogEntry -LineValue $($Tab+'Generating SQL Scripts' + $(': ' + $(Get-Date -format s).Replace('T', ' ')));
+			$FilterSetString = '@FilterVersion = ' + $FilterSet;
+			$SqlQuery = ([string](Get-Item Function:SqlCodeBlock).ScriptBlock).Replace('@"', '').Replace('"@', '').Replace('@FilterVersion = 1', $FilterSetString);
+			$ReaderCommand = New-Object System.Data.SqlClient.SqlCommand($SqlQuery, $Connection);
+			$Reader = $ReaderCommand.ExecuteReader();
+			If ($Reader.HasRows)
+			{
+				$Results = @();
+				While ($Reader.Read())
+				{
+					$Properties = @{};
+					$Reader.GetSchemaTable() | ForEach-Object { $Properties[$_.ColumnName] = $Reader[$_.ColumnName]};
+					$Results += New-Object -TypeName psobject -Property $Properties;
+				}
+			}
+			$Reader.Close();
+ 
+# Collect processing values retrieved from the ScriptBlock execution
+			ForEach ($LogEntry In $Results)
+			{
+				Switch ($LogEntry.ResultType) 
+				{
+					'DataOriginName'
+					{
+						$Versioning.DataOriginSource = $LogEntry.ResultString;
+						continue;
+					}
+					'DataOriginScriptVersion'
+					{
+						$Versioning.ScriptVersion = $LogEntry.ResultString;
+						continue;
+					}
+					'PrimarySourceTool'
+					{
+						$Versioning.PrimarySourceTool = $LogEntry.ResultString;
+						continue;
+					}
+					'PrimarySourceToolVersion'
+					{
+						$Versioning.PrimarySourceToolVersion = $LogEntry.ResultString;
+						continue;
+					}
+					'FileNamePrefix'
+					{
+						$FileNamePrefix = $LogEntry.ResultString;
+						continue;
+					}
+					'EntityCount'
+					{
+						$MaxTableCount = $LogEntry.ResultString;
+						continue;
+					}
+				}
+			}
+#Capture the current processing settings
+			Add-LogEntry -LineValue $($Tab+$Tab+'List of processing values used for this script execution');
+			Add-LogEntry -LineValue $($Tab+$Tab+$Tab+'DataOriginName = (' + $Versioning.DataOriginSource + ')');
+			Add-LogEntry -LineValue $($Tab+$Tab+$Tab+'ScriptVersion = (' + $Versioning.ScriptVersion + ')');
+			Add-LogEntry -LineValue $($Tab+$Tab+$Tab+'PrimarySourceTool = (' + $Versioning.PrimarySourceTool + ')');
+			Add-LogEntry -LineValue $($Tab+$Tab+$Tab+'PrimarySourceToolVersion = (' + $Versioning.PrimarySourceToolVersion + ')');
+		}
+		Catch
+		{
+			$ErrorMessage = 'Problem connecting to database';
+			If ($_.Exception.InnerException.Message)
+			{
+				$ErrorMessage += ' - ' + $_.Exception.InnerException.Message;
+			}
+		}
+	}
+#endregion GENERATE SCRIPTS
+ 
+	If (!$ErrorMessage)
+	{
+#region COLLECT AND WRITE XMLFILE
+		Try
+		{
+# Add Sql code generation Log values to the Log Capture collection
+			ForEach ($LogEntry In $($Results | Sort-Object ResultRow | Where-Object {$_.ResultType -EQ 'Log'}).ResultString)
+			{
+				Add-LogEntry -LineValue $($Tab+$Tab+$LogEntry);
+			}
+			$SqlResult = ($Results | Sort-Object ResultRow | Where-Object {$_.ResultType -EQ 'Script'}) | Select-Object TableName, @{Name='Query';Expression={$_.ResultString}};
+ 
+# If we were able to run the SQLQuery Generate Xml and Log file stream names
+			If ($FileNamePrefix)
+			{
+				$XmlFileName = $XmlFilePath + $FileNamePrefix + '_' + $FileDate + '.' + $XmlFileExtension;
+				$LogFileName = $LogFilePath + $FileNamePrefix + '_' + $FileDate + '.' + $LogFileExtension;
+			}
+			Else
+			{
+				$ErrorMessage = 'Missing processing file prefix name value';
+			}
+			If (!$ErrorMessage)
+			{
+				Add-LogEntry -LineValue $($Tab+'Running SQL Scripts and writing data' + $(': ' + $(Get-Date -format s).Replace('T', ' ')));
+				$ScriptTableCount = $SqlResult.Count;
+ 
+				If ($ScriptTableCount -gt 0)
+				{
+# Create XML output file stream Object
+					Add-LogEntry -LineValue $($Tab+'Creating Xml file');
+					Try
+					{
+						$XMLFileStream = New-Object System.IO.StreamWriter $XmlFileName;
+						$XMLFIleStream.AutoFlush = $true;
+					}
+					Catch
+					{
+						$ErrorMessage = 'Could not create XML File';
+						Throw;
+					}
+ 
+					Add-LogEntry -LineValue $($Tab+'Creating Xml file');
+#Output Header Elements
+					Add-LogEntry -LineValue $($Tab+$Tab+'Adding Xml Header element');
+					$XMLFileStream.WriteLine($XmlHeader);
+ 
+#Output Opening Root element
+					Add-LogEntry -LineValue $($Tab+$Tab+'Adding opening Root element');
+					$XMLFileStream.WriteLine($XmlRootOpen);
+ 
+#Output Versioining element
+					$Table = 'Versioning';
+					Add-LogEntry -LineValue $($Tab+$Tab+'Adding Versioning element');
+					$WriteList = 'DataSource', 'AppVersion', 'ScriptVersion', 'DataOriginSource', 'PrimarySourceTool', 'PrimarySourceToolVersion', 'PSVersion', 'dotNetVersion', 'DiscoveryDate', 'AnonymizationIdentifier', 'AnonymizationCheckValue';
+					$Versioning | Select-Object $WriteList | ForEach-Object {$_.psobject.properties | ForEach-Object {$XMLFileStream.WriteLine($Tab + '<' + $Table + '>')} {$XMLFileStream.WriteLine($($Tab + $Tab + '<' + $_.name + '>' + $_.value + '</' + $_.name + '>'))} {$XMLFileStream.WriteLine($Tab + '</' + $Table + '>')}};
+ 
+# Populate Table Elements
+					ForEach ($Table In $SqlResult)
+					{
+						$TableName = $Table.TableName;
+						$SQLTableQuery = $Table.Query;
+ 
+						Add-LogEntry -LineValue $($Tab+$Tab+'Adding ' + $TableName + ' element');
+						If ($ProgressDisplay)
+						{
+							Write-Progress -Id 0 -Activity 'Collecting Data' -Status $('Processing ' + $TableReadCount + ' of ' + $MaxTableCount) -CurrentOperation $TableName;
+						}
+						Try
+						{
+							$ReaderCommand = New-Object System.Data.SqlClient.SqlCommand($SQLTableQuery, $Connection);
+							$Reader = $ReaderCommand.ExecuteReader();
+							$TableCollectStart = Get-Date;
+							$RowCount = 0;
+							If ($Reader.HasRows)
+							{
+								While ($Reader.Read())
+								{
+									$ColumnLoop = $Reader.FieldCount;
+# Write opening Outer Element row
+									$XMLFileStream.WriteLine($Tab+'<'+$TableName+'>');
+									For ($i=0; $i -lt $ColumnLoop; $i++)
+									{
+										$ReadColumnName = $Reader.GetName($i);
+										$ReadColumnValue = ($invalidXmlCharactersRegex.Replace($Reader.GetValue($i), "")).replace('&', '&amp;').replace("'", '&apos;').replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
+# Write Inner Element rows
+										$XMLFileStream.WriteLine($Tab+$Tab+'<'+$ReadColumnName+'>'+$ReadColumnValue+'</'+$ReadColumnName+'>')
+									}
+# Write closing Outer Element row
+									$XMLFileStream.WriteLine($Tab+'</'+$TableName+'>');
+									$RowCount++;
+								}
+							}
+# Capture final element processing metrics and add to LogFile
+							$TableCollectEnd = Get-Date;
+							$TimeDiff = $TableCollectEnd - $TableCollectStart;
+							$TimeMilliSeconds = [int]$TimeDiff.TotalMilliSeconds;
+							$TableReadCount++;
+							$TotalRowCount = $TotalRowCount + $RowCount;
+							Add-LogEntry -LineValue $($Tab+$Tab+$Tab+([string]$RowCount) + ' element entries added in ' + [string]$TimeMilliSeconds + ' milliseconds');
+							$Reader.Close();
+						}
+						Catch
+						{
+							$ErrorMessage = $_.Exception.Message;
+							Add-LogEntry -LineValue $($Tab+$Tab+$Tab+$ErrorMessage);
+						}
+					}
+ 
+# Complete file write (output process metadata and close Root element
+					$EndDate = Get-Date;
+					$TimeDiff = $EndDate - $StartDate;
+					$TimeSeconds = [int]$TimeDiff.TotalSeconds;
+					$TimeMilliSeconds = [int]$TimeDiff.TotalMilliSeconds;
+ 
+# Write log wrap up entries
+					Add-LogEntry -LineValue $($Tab+'Results of data collection processing');
+					Add-LogEntry -LineValue $($Tab+$Tab+'Number of items processed: ' + [string]$TableReadCount + ' out of ' + $MaxTableCount + ' requested');
+					Add-LogEntry -LineValue $($Tab+$Tab+'Total number of element entries written: ' + [string]$TotalRowCount);
+					Add-LogEntry -LineValue $($Tab+$Tab+'Total processing time in milliseconds: ' + [string]$TimeMilliSeconds);
+ 
+# Write ProcessResult element
+					Add-LogEntry -LineValue $($Tab+$Tab+'Adding ProcessResult element');
+					$Table = 'ProcessResult';
+					$WriteList = 'ElementsCollected', 'ElementsRequested', 'ElementItemsTotal', 'ProcessTimeStart', 'ProcessTimeEnd', 'ProcessTimeInMilliseconds', 'ExecutionStatus', 'ExecutionStatusMessage';
+					$i=@{};
+					$i.ElementsCollected = $TableReadCount;
+					$i.ElementsRequested = $MaxTableCount;
+					$i.ElementItemsTotal = $TotalRowCount;
+					$i.ProcessTimeStart = $(Get-Date $StartDate -format s);
+					$i.ProcessTimeEnd = $(Get-Date $EndDate -format s);
+					$i.ProcessTimeInMilliseconds = $TimeMilliSeconds;
+					If ($MaxTableCount -ne $TableReadCount -and $LogStore -match 'List of missing columns')
+					{
+						$i.ExecutionStatus = 'Incomplete';
+						$i.ExecutionStatusMessage = 'Missing table elements and column elements.';
+					}
+					ElseIf ($MaxTableCount -ne $TableReadCount)
+					{
+						$i.ExecutionStatus = 'Incomplete';
+						$i.ExecutionStatusMessage = 'Missing table elements.';
+					}
+					ElseIf ($LogStore -match 'List of missing columns')
+					{
+						$i.ExecutionStatus = 'Incomplete';
+						$i.ExecutionStatusMessage = 'Missing column elements.';
+					}
+					Else
+					{
+						$i.ExecutionStatus = 'Success';
+						$i.ExecutionStatusMessage = 'All requested elements and columns collected.';
+					}
+					$ProcessResult = New-Object PSObject -Property $i;
+					$ProcessResult | Select-Object $WriteList | ForEach-Object {$_.psobject.properties | ForEach-Object {$XMLFileStream.WriteLine($Tab + '<' + $Table + '>')} {$XMLFileStream.WriteLine($($Tab + $Tab + '<' + $_.name + '>' + $_.value + '</' + $_.name + '>'))} {$XMLFileStream.WriteLine($Tab + '</' + $Table + '>')}};
+# Write closing Root element
+					Add-LogEntry -LineValue $($Tab+$Tab+'Adding closing Root element');
+					$XMLFileStream.WriteLine($XmlRootClose);
+				}
+				Else
+				{
+					$ErrorMessage = 'No selectable rows found using the specified parameters';
+				}
+			}
+		}
+		Catch
+		{
+			$ErrorMessage = $_.Exception.Message;
+		}
+#endregion COLLECT AND WRITE XMLFILE
+ 
+#region PROCESS SUCCESS FLAG
+		If (!$ErrorMessage)
+		{
+#If we made it all the way to the end without terminating set statue true
+			$ExecutionSuccess = $true;
+		}
+#endregion PROCESS SUCCESS FLAG
+	}
+}
+Catch
+{
+	$ErrorMessage = $_.Exception.Message;
+}
+Finally
+{
+#Close XML Stream
+	Try
+	{
+		If ($XMLFileStream)
+		{
+			$XMLFileStream.Close();
+			Add-LogEntry -LineValue $($Tab+'Xml file ' + $XmlFilename + ' created.');
+		}
+		Else
+		{
+#If there was no file to close, assume no file was opened and clear file name for output
+			$XmlFileName = '';
+		}
+	}
+	Catch
+	{
+		If ($ErrorMessage)
+		{
+			$ErrorMessage += ': Failed to properly close XML File.';
+		}
+		Else
+		{
+			$ErrorMessage = 'Failed to properly close XML File';
+		}
+	}
+ 
+#Create and write Log file if not Suppressed
+	If (!$SuppressLogFile)
+	{
+#If we fell into the PROGRAM MAIN Catch we need to close our processing time stamp
+		If (!$EndDate)
+		{
+			$EndDate = Get-Date;
+			$TimeDiff = $EndDate - $StartDate;
+			$TimeMilliSeconds = [int]$TimeDiff.TotalMilliSeconds;
+		}
+#Write log file
+		Try
+		{
+			If (!$LogFileName)
+			{
+				$LogFileName = $LogFilePath + 'map_' + $FileDate + '.' + $LogFileExtension;
+			}
+			$LogFileStream = New-Object System.IO.StreamWriter $LogFileName;
+			$LogFileStream.AutoFlush = $true;
+			Add-LogEntry -LineValue $($Tab+'Script processing time in milliseconds: ' + $TimeMilliSeconds);
+			If (!$ExecutionSuccess)
+			{
+#If the script is exited with a Ctrl+C the flag will not be set and no error will have been generated
+				If (!$ErrorMessage)
+				{
+					$ErrorMessage = 'Script execution terminated - file write incomplete.';
+				}
+				Add-LogEntry -LineValue $($Tab+'ExecutionStatus = Failure');
+				Add-LogEntry -LineValue $($Tab+'ExecutionStatusMessage = ERROR: ' + $ErrorMessage);
+			}
+			Else
+			{
+				If ($MaxTableCount -ne $TableReadCount -and $LogStore -match 'List of missing columns')
+				{
+					Add-LogEntry -LineValue $($Tab+'ExecutionStatus = Incomplete');
+					Add-LogEntry -LineValue $($Tab+'ExecutionStatusMessage = Missing table elements and column elements.');
+				}
+				ElseIf ($MaxTableCount -ne $TableReadCount)
+				{
+					Add-LogEntry -LineValue $($Tab+'ExecutionStatus = Incomplete');
+					Add-LogEntry -LineValue $($Tab+'ExecutionStatusMessage = Missing table elements.');
+				}
+				ElseIf ($LogStore -match 'List of missing columns')
+				{
+					Add-LogEntry -LineValue $($Tab+'ExecutionStatus = Incomplete');
+					Add-LogEntry -LineValue $($Tab+'ExecutionStatusMessage = Missing column elements.');
+				}
+				Else
+				{
+					Add-LogEntry -LineValue $($Tab+'ExecutionStatus = Success');
+					Add-LogEntry -LineValue $($Tab+'ExecutionStatusMessage = All requested elements and columns collected.');
+				}
+			}
+			Add-LogEntry -LineValue $('Processing End: ' + $((Get-Date -format s).Replace('T', ' ')));
+ 
+			$LogStore.GetEnumerator() | Sort-Object Name | ForEach-Object {$LogFileStream.WriteLine($_.Value)} -ErrorAction SilentlyContinue;
+			$LogFileStream.Close();
+		}
+		Catch
+		{
+			If (!$xDTCall)
+			{
+				If ($ErrorMessage)
+				{
+					$ErrorMessage += ': Could not create LOG File';
+				}
+				Else
+				{
+					$ErrorMessage = 'Could not create LOG File';
+				}
+			}
+		}
+	}
+	$CollectionResults = '' | Select-Object 'CollectionSuccess', 'FileName', 'Error';
+	$CollectionResults.CollectionSuccess = $ExecutionSuccess;
+	$CollectionResults.FileName = $XmlFileName;
+	$CollectionResults.Error = $ErrorMessage;
+}
+#endregion PROGRAM MAIN
+If ($xDTCall)
+{
+	Return $CollectionResults;
+}
+Else
+{
+	$CollectionResults | Format-List;
+}
+
+# SIG # Begin signature block
+# MIIkAwYJKoZIhvcNAQcCoIIj9DCCI/ACAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCABgjxyXEZpjvcE
+# 8yr018RN618Ksvljqps9TCNKNHRIPqCCDYIwggYAMIID6KADAgECAhMzAAAAww6b
+# p9iy3PcsAAAAAADDMA0GCSqGSIb3DQEBCwUAMH4xCzAJBgNVBAYTAlVTMRMwEQYD
+# VQQIEwpXYXNoaW5ndG9uMRAwDgYDVQQHEwdSZWRtb25kMR4wHAYDVQQKExVNaWNy
+# b3NvZnQgQ29ycG9yYXRpb24xKDAmBgNVBAMTH01pY3Jvc29mdCBDb2RlIFNpZ25p
+# bmcgUENBIDIwMTEwHhcNMTcwODExMjAyMDI0WhcNMTgwODExMjAyMDI0WjB0MQsw
+# CQYDVQQGEwJVUzETMBEGA1UECBMKV2FzaGluZ3RvbjEQMA4GA1UEBxMHUmVkbW9u
+# ZDEeMBwGA1UEChMVTWljcm9zb2Z0IENvcnBvcmF0aW9uMR4wHAYDVQQDExVNaWNy
+# b3NvZnQgQ29ycG9yYXRpb24wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIB
+# AQC7V9c40bEGf0ktqW2zY596urY6IVu0mK6N1KSBoMV1xSzvgkAqt4FTd/NjAQq8
+# zjeEA0BDV4JLzu0ftv2AbcnCkV0Fx9xWWQDhDOtX3v3xuJAnv3VK/HWycli2xUib
+# M2IF0ZWUpb85Iq2NEk1GYtoyGc6qIlxWSLFvRclndmJdMIijLyjFH1Aq2YbbGhEl
+# gcL09Wcu53kd9eIcdfROzMf8578LgEcp/8/NabEMC2DrZ+aEG5tN/W1HOsfZwWFh
+# 8pUSoQ0HrmMh2PSZHP94VYHupXnoIIJfCtq1UxlUAVcNh5GNwnzxVIaA4WLbgnM+
+# Jl7wQBLSOdUmAw2FiDFfCguLAgMBAAGjggF/MIIBezAfBgNVHSUEGDAWBgorBgEE
+# AYI3TAgBBggrBgEFBQcDAzAdBgNVHQ4EFgQUpxNdHyGJVegD7p4XNuryVIg1Ga8w
+# UQYDVR0RBEowSKRGMEQxDDAKBgNVBAsTA0FPQzE0MDIGA1UEBRMrMjMwMDEyK2M4
+# MDRiNWVhLTQ5YjQtNDIzOC04MzYyLWQ4NTFmYTIyNTRmYzAfBgNVHSMEGDAWgBRI
+# bmTlUAXTgqoXNzcitW2oynUClTBUBgNVHR8ETTBLMEmgR6BFhkNodHRwOi8vd3d3
+# Lm1pY3Jvc29mdC5jb20vcGtpb3BzL2NybC9NaWNDb2RTaWdQQ0EyMDExXzIwMTEt
+# MDctMDguY3JsMGEGCCsGAQUFBwEBBFUwUzBRBggrBgEFBQcwAoZFaHR0cDovL3d3
+# dy5taWNyb3NvZnQuY29tL3BraW9wcy9jZXJ0cy9NaWNDb2RTaWdQQ0EyMDExXzIw
+# MTEtMDctMDguY3J0MAwGA1UdEwEB/wQCMAAwDQYJKoZIhvcNAQELBQADggIBAE2X
+# TzR+8XCTnOPVGkucEX5rJsSlJPTfRNQkurNqCImZmssx53Cb/xQdsAc5f+QwOxMi
+# 3g7IlWe7bn74fJWkkII3k6aD00kCwaytWe+Rt6dmAA6iTCXU3OddBwLKKDRlOzmD
+# rZUqjsqg6Ag6HP4+e0BJlE2OVCUK5bHHCu5xN8abXjb1p0JE+7yHsA3ANdkmh1//
+# Z+8odPeKMAQRimfMSzVgaiHnw40Hg16bq51xHykmCRHU9YLT0jYHKa7okm2QfwDJ
+# qFvu0ARl+6EOV1PM8piJ858Vk8gGxGNSYQJPV0gc9ft1Esq1+fTCaV+7oZ0NaYMn
+# 64M+HWsxw+4O8cSEQ4fuMZwGADJ8tyCKuQgj6lawGNSyvRXsN+1k02sVAiPGijOH
+# OtGbtsCWWSygAVOEAV/ye8F6sOzU2FL2X3WBRFkWOCdTu1DzXnHf99dR3DHVGmM1
+# Kpd+n2Y3X89VM++yyrwsI6pEHu77Z0i06ELDD4pRWKJGAmEmWhm/XJTpqEBw51sw
+# THyA1FBnoqXuDus9tfHleR7h9VgZb7uJbXjiIFgl/+RIs+av8bJABBdGUNQMbJEU
+# fe7K4vYm3hs7BGdRLg+kF/dC/z+RiTH4p7yz5TpS3Cozf0pkkWXYZRG222q3tGxS
+# /L+LcRbELM5zmqDpXQjBRUWlKYbsATFtXnTGVjELMIIHejCCBWKgAwIBAgIKYQ6Q
+# 0gAAAAAAAzANBgkqhkiG9w0BAQsFADCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgT
+# Cldhc2hpbmd0b24xEDAOBgNVBAcTB1JlZG1vbmQxHjAcBgNVBAoTFU1pY3Jvc29m
+# dCBDb3Jwb3JhdGlvbjEyMDAGA1UEAxMpTWljcm9zb2Z0IFJvb3QgQ2VydGlmaWNh
+# dGUgQXV0aG9yaXR5IDIwMTEwHhcNMTEwNzA4MjA1OTA5WhcNMjYwNzA4MjEwOTA5
+# WjB+MQswCQYDVQQGEwJVUzETMBEGA1UECBMKV2FzaGluZ3RvbjEQMA4GA1UEBxMH
+# UmVkbW9uZDEeMBwGA1UEChMVTWljcm9zb2Z0IENvcnBvcmF0aW9uMSgwJgYDVQQD
+# Ex9NaWNyb3NvZnQgQ29kZSBTaWduaW5nIFBDQSAyMDExMIICIjANBgkqhkiG9w0B
+# AQEFAAOCAg8AMIICCgKCAgEAq/D6chAcLq3YbqqCEE00uvK2WCGfQhsqa+laUKq4
+# BjgaBEm6f8MMHt03a8YS2AvwOMKZBrDIOdUBFDFC04kNeWSHfpRgJGyvnkmc6Whe
+# 0t+bU7IKLMOv2akrrnoJr9eWWcpgGgXpZnboMlImEi/nqwhQz7NEt13YxC4Ddato
+# 88tt8zpcoRb0RrrgOGSsbmQ1eKagYw8t00CT+OPeBw3VXHmlSSnnDb6gE3e+lD3v
+# ++MrWhAfTVYoonpy4BI6t0le2O3tQ5GD2Xuye4Yb2T6xjF3oiU+EGvKhL1nkkDst
+# rjNYxbc+/jLTswM9sbKvkjh+0p2ALPVOVpEhNSXDOW5kf1O6nA+tGSOEy/S6A4aN
+# 91/w0FK/jJSHvMAhdCVfGCi2zCcoOCWYOUo2z3yxkq4cI6epZuxhH2rhKEmdX4ji
+# JV3TIUs+UsS1Vz8kA/DRelsv1SPjcF0PUUZ3s/gA4bysAoJf28AVs70b1FVL5zmh
+# D+kjSbwYuER8ReTBw3J64HLnJN+/RpnF78IcV9uDjexNSTCnq47f7Fufr/zdsGbi
+# wZeBe+3W7UvnSSmnEyimp31ngOaKYnhfsi+E11ecXL93KCjx7W3DKI8sj0A3T8Hh
+# hUSJxAlMxdSlQy90lfdu+HggWCwTXWCVmj5PM4TasIgX3p5O9JawvEagbJjS4NaI
+# jAsCAwEAAaOCAe0wggHpMBAGCSsGAQQBgjcVAQQDAgEAMB0GA1UdDgQWBBRIbmTl
+# UAXTgqoXNzcitW2oynUClTAZBgkrBgEEAYI3FAIEDB4KAFMAdQBiAEMAQTALBgNV
+# HQ8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAfBgNVHSMEGDAWgBRyLToCMZBDuRQF
+# TuHqp8cx0SOJNDBaBgNVHR8EUzBRME+gTaBLhklodHRwOi8vY3JsLm1pY3Jvc29m
+# dC5jb20vcGtpL2NybC9wcm9kdWN0cy9NaWNSb29DZXJBdXQyMDExXzIwMTFfMDNf
+# MjIuY3JsMF4GCCsGAQUFBwEBBFIwUDBOBggrBgEFBQcwAoZCaHR0cDovL3d3dy5t
+# aWNyb3NvZnQuY29tL3BraS9jZXJ0cy9NaWNSb29DZXJBdXQyMDExXzIwMTFfMDNf
+# MjIuY3J0MIGfBgNVHSAEgZcwgZQwgZEGCSsGAQQBgjcuAzCBgzA/BggrBgEFBQcC
+# ARYzaHR0cDovL3d3dy5taWNyb3NvZnQuY29tL3BraW9wcy9kb2NzL3ByaW1hcnlj
+# cHMuaHRtMEAGCCsGAQUFBwICMDQeMiAdAEwAZQBnAGEAbABfAHAAbwBsAGkAYwB5
+# AF8AcwB0AGEAdABlAG0AZQBuAHQALiAdMA0GCSqGSIb3DQEBCwUAA4ICAQBn8oal
+# mOBUeRou09h0ZyKbC5YR4WOSmUKWfdJ5DJDBZV8uLD74w3LRbYP+vj/oCso7v0ep
+# o/Np22O/IjWll11lhJB9i0ZQVdgMknzSGksc8zxCi1LQsP1r4z4HLimb5j0bpdS1
+# HXeUOeLpZMlEPXh6I/MTfaaQdION9MsmAkYqwooQu6SpBQyb7Wj6aC6VoCo/KmtY
+# SWMfCWluWpiW5IP0wI/zRive/DvQvTXvbiWu5a8n7dDd8w6vmSiXmE0OPQvyCInW
+# H8MyGOLwxS3OW560STkKxgrCxq2u5bLZ2xWIUUVYODJxJxp/sfQn+N4sOiBpmLJZ
+# iWhub6e3dMNABQamASooPoI/E01mC8CzTfXhj38cbxV9Rad25UAqZaPDXVJihsMd
+# YzaXht/a8/jyFqGaJ+HNpZfQ7l1jQeNbB5yHPgZ3BtEGsXUfFL5hYbXw3MYbBL7f
+# QccOKO7eZS/sl/ahXJbYANahRr1Z85elCUtIEJmAH9AAKcWxm6U/RXceNcbSoqKf
+# enoi+kiVH6v7RyOA9Z74v2u3S5fi63V4GuzqN5l5GEv/1rMjaHXmr/r8i+sLgOpp
+# O6/8MO0ETI7f33VtY5E90Z1WTk+/gFcioXgRMiF670EKsT/7qMykXcGhiJtXcVZO
+# SEXAQsmbdlsKgEhr/Xmfwb1tbWrJUnMTDXpQzTGCFdcwghXTAgEBMIGVMH4xCzAJ
+# BgNVBAYTAlVTMRMwEQYDVQQIEwpXYXNoaW5ndG9uMRAwDgYDVQQHEwdSZWRtb25k
+# MR4wHAYDVQQKExVNaWNyb3NvZnQgQ29ycG9yYXRpb24xKDAmBgNVBAMTH01pY3Jv
+# c29mdCBDb2RlIFNpZ25pbmcgUENBIDIwMTECEzMAAADDDpun2LLc9ywAAAAAAMMw
+# DQYJYIZIAWUDBAIBBQCggcYwGQYJKoZIhvcNAQkDMQwGCisGAQQBgjcCAQQwHAYK
+# KwYBBAGCNwIBCzEOMAwGCisGAQQBgjcCARUwLwYJKoZIhvcNAQkEMSIEIJQlyLH3
+# /KHLyfDvGFLoWzYUFYGHFNV349q/3cv3EKchMFoGCisGAQQBgjcCAQwxTDBKoDCA
+# LgBXAG8AcgBrAFMAcABhAGMAZQAgAEMAbwBtAHAAYQBuAGkAbwBuACAAQQBwAHCh
+# FoAUaHR0cDovL21zd29ya3NwYWNlLyAwDQYJKoZIhvcNAQEBBQAEggEAtbPfUqiZ
+# N3HE1xgy/y3oa1q4kxjiWInEpecuWvmoW5hO7bFJdKvy1oj5xjnY8Nbiwxe2367I
+# bet4ZOVJFE+z3xStxVHwgNyhEf4krhPiKcfQNjtNKMsJfcRkpuwdOovtpPi9rmHq
+# GBI5Gqp4/Xx1jKAJyFIXlBm900/fFzh4wdgamvz5c+JVs76bQTquYlQi3pt4dfLF
+# JMJL/Ggl62y0wVMq11d0USIjB6Bf46Ge5jtLZASWW+cN68WIM0NAAetm7Fz0HmLh
+# N5BoFrMIIcLUi8Zo7gDL00J2aahpPrj16k+rfqfQLd0/0f9UcB9yw9+Vkcj39GRv
+# SpCdl88Mi6N6HKGCE0kwghNFBgorBgEEAYI3AwMBMYITNTCCEzEGCSqGSIb3DQEH
+# AqCCEyIwghMeAgEDMQ8wDQYJYIZIAWUDBAIBBQAwggE8BgsqhkiG9w0BCRABBKCC
+# ASsEggEnMIIBIwIBAQYKKwYBBAGEWQoDATAxMA0GCWCGSAFlAwQCAQUABCBtdXjr
+# Vs2LS85pW1HXYim4YAX6ydLftUX485g3q5/vagIGWdaGvtHKGBMyMDE3MTExMzE5
+# MzkwMS4wNjVaMAcCAQGAAgH0oIG4pIG1MIGyMQswCQYDVQQGEwJVUzETMBEGA1UE
+# CBMKV2FzaGluZ3RvbjEQMA4GA1UEBxMHUmVkbW9uZDEeMBwGA1UEChMVTWljcm9z
+# b2Z0IENvcnBvcmF0aW9uMQwwCgYDVQQLEwNBT0MxJzAlBgNVBAsTHm5DaXBoZXIg
+# RFNFIEVTTjo1N0M4LTJEMTUtMUM4QjElMCMGA1UEAxMcTWljcm9zb2Z0IFRpbWUt
+# U3RhbXAgU2VydmljZaCCDs0wggZxMIIEWaADAgECAgphCYEqAAAAAAACMA0GCSqG
+# SIb3DQEBCwUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKV2FzaGluZ3RvbjEQ
+# MA4GA1UEBxMHUmVkbW9uZDEeMBwGA1UEChMVTWljcm9zb2Z0IENvcnBvcmF0aW9u
+# MTIwMAYDVQQDEylNaWNyb3NvZnQgUm9vdCBDZXJ0aWZpY2F0ZSBBdXRob3JpdHkg
+# MjAxMDAeFw0xMDA3MDEyMTM2NTVaFw0yNTA3MDEyMTQ2NTVaMHwxCzAJBgNVBAYT
+# AlVTMRMwEQYDVQQIEwpXYXNoaW5ndG9uMRAwDgYDVQQHEwdSZWRtb25kMR4wHAYD
+# VQQKExVNaWNyb3NvZnQgQ29ycG9yYXRpb24xJjAkBgNVBAMTHU1pY3Jvc29mdCBU
+# aW1lLVN0YW1wIFBDQSAyMDEwMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKC
+# AQEAqR0NvHcRijog7PwTl/X6f2mUa3RUENWlCgCChfvtfGhLLF/Fw+Vhwna3PmYr
+# W/AVUycEMR9BGxqVHc4JE458YTBZsTBED/FgiIRUQwzXTbg4CLNC3ZOs1nMwVyaC
+# o0UN0Or1R4HNvyRgMlhgRvJYR4YyhB50YWeRX4FUsc+TTJLBxKZd0WETbijGGvmG
+# gLvfYfxGwScdJGcSchohiq9LZIlQYrFd/XcfPfBXday9ikJNQFHRD5wGPmd/9WbA
+# A5ZEfu/QS/1u5ZrKsajyeioKMfDaTgaRtogINeh4HLDpmc085y9Euqf03GS9pAHB
+# IAmTeM38vMDJRF1eFpwBBU8iTQIDAQABo4IB5jCCAeIwEAYJKwYBBAGCNxUBBAMC
+# AQAwHQYDVR0OBBYEFNVjOlyKMZDzQ3t8RhvFM2hahW1VMBkGCSsGAQQBgjcUAgQM
+# HgoAUwB1AGIAQwBBMAsGA1UdDwQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MB8GA1Ud
+# IwQYMBaAFNX2VsuP6KJcYmjRPZSQW9fOmhjEMFYGA1UdHwRPME0wS6BJoEeGRWh0
+# dHA6Ly9jcmwubWljcm9zb2Z0LmNvbS9wa2kvY3JsL3Byb2R1Y3RzL01pY1Jvb0Nl
+# ckF1dF8yMDEwLTA2LTIzLmNybDBaBggrBgEFBQcBAQROMEwwSgYIKwYBBQUHMAKG
+# Pmh0dHA6Ly93d3cubWljcm9zb2Z0LmNvbS9wa2kvY2VydHMvTWljUm9vQ2VyQXV0
+# XzIwMTAtMDYtMjMuY3J0MIGgBgNVHSABAf8EgZUwgZIwgY8GCSsGAQQBgjcuAzCB
+# gTA9BggrBgEFBQcCARYxaHR0cDovL3d3dy5taWNyb3NvZnQuY29tL1BLSS9kb2Nz
+# L0NQUy9kZWZhdWx0Lmh0bTBABggrBgEFBQcCAjA0HjIgHQBMAGUAZwBhAGwAXwBQ
+# AG8AbABpAGMAeQBfAFMAdABhAHQAZQBtAGUAbgB0AC4gHTANBgkqhkiG9w0BAQsF
+# AAOCAgEAB+aIUQ3ixuCYP4FxAz2do6Ehb7Prpsz1Mb7PBeKp/vpXbRkws8LFZslq
+# 3/Xn8Hi9x6ieJeP5vO1rVFcIK1GCRBL7uVOMzPRgEop2zEBAQZvcXBf/XPleFzWY
+# JFZLdO9CEMivv3/Gf/I3fVo/HPKZeUqRUgCvOA8X9S95gWXZqbVr5MfO9sp6AG9L
+# MEQkIjzP7QOllo9ZKby2/QThcJ8ySif9Va8v/rbljjO7Yl+a21dA6fHOmWaQjP9q
+# Yn/dxUoLkSbiOewZSnFjnXshbcOco6I8+n99lmqQeKZt0uGc+R38ONiU9MalCpaG
+# pL2eGq4EQoO4tYCbIjggtSXlZOz39L9+Y1klD3ouOVd2onGqBooPiRa6YacRy5rY
+# DkeagMXQzafQ732D8OE7cQnfXXSYIghh2rBQHm+98eEA3+cxB6STOvdlR3jo+KhI
+# q/fecn5ha293qYHLpwmsObvsxsvYgrRyzR30uIUBHoD7G4kqVDmyW9rIDVWZeodz
+# OwjmmC3qjeAzLhIp9cAvVCch98isTtoouLGp25ayp0Kiyc8ZQU3ghvkqmqMRZjDT
+# u3QyS99je/WZii8bxyGvWbWu3EQ8l1Bx16HSxVXjad5XwdHeMMD9zOZN+w2/XU/p
+# nR4ZOC+8z1gFLu8NoFA12u8JJxzVs341Hgi62jbb01+P3nSISRIwggTZMIIDwaAD
+# AgECAhMzAAAAqrepiP/qV8MKAAAAAACqMA0GCSqGSIb3DQEBCwUAMHwxCzAJBgNV
+# BAYTAlVTMRMwEQYDVQQIEwpXYXNoaW5ndG9uMRAwDgYDVQQHEwdSZWRtb25kMR4w
+# HAYDVQQKExVNaWNyb3NvZnQgQ29ycG9yYXRpb24xJjAkBgNVBAMTHU1pY3Jvc29m
+# dCBUaW1lLVN0YW1wIFBDQSAyMDEwMB4XDTE2MDkwNzE3NTY1M1oXDTE4MDkwNzE3
+# NTY1M1owgbIxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpXYXNoaW5ndG9uMRAwDgYD
+# VQQHEwdSZWRtb25kMR4wHAYDVQQKExVNaWNyb3NvZnQgQ29ycG9yYXRpb24xDDAK
+# BgNVBAsTA0FPQzEnMCUGA1UECxMebkNpcGhlciBEU0UgRVNOOjU3QzgtMkQxNS0x
+# QzhCMSUwIwYDVQQDExxNaWNyb3NvZnQgVGltZS1TdGFtcCBTZXJ2aWNlMIIBIjAN
+# BgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnth/e1d4+gX6o5q3kK+audW2dHaR
+# y7jOuyrOKynvX7RrdZh1KICtmI+5qvCd0rabR2SYxqVZqpF4+R6LefckdEbqJP5p
+# BK6+639TUxNZ1Q/8+83d9gdBmxs3N9lcdpndrsfD29OtaMJQnHQORHcuLp1vwR3v
+# LMc7dK7bly2PgcVHBUDASjdIk7wDmkvwjQTLQ3D76FixnaxQ57m1hPHHmwfs95pp
+# 269If6xZMYZiFnCVXvHLzDpH8+o/AowQu70jjKkDc08OuAxc8S+qf/pkm4wumBTA
+# Rs8mTzwGI8ZPIreSDxoCGfycKc2E3oGv8P2tmKyliIOGlVSGtJtxQMYvNwIDAQAB
+# o4IBGzCCARcwHQYDVR0OBBYEFAi4ch0VJPWTAuGf0hxM06vMWcmwMB8GA1UdIwQY
+# MBaAFNVjOlyKMZDzQ3t8RhvFM2hahW1VMFYGA1UdHwRPME0wS6BJoEeGRWh0dHA6
+# Ly9jcmwubWljcm9zb2Z0LmNvbS9wa2kvY3JsL3Byb2R1Y3RzL01pY1RpbVN0YVBD
+# QV8yMDEwLTA3LTAxLmNybDBaBggrBgEFBQcBAQROMEwwSgYIKwYBBQUHMAKGPmh0
+# dHA6Ly93d3cubWljcm9zb2Z0LmNvbS9wa2kvY2VydHMvTWljVGltU3RhUENBXzIw
+# MTAtMDctMDEuY3J0MAwGA1UdEwEB/wQCMAAwEwYDVR0lBAwwCgYIKwYBBQUHAwgw
+# DQYJKoZIhvcNAQELBQADggEBAGCPDu4HzhrhfZ95xngOnc5MpAGdamdHlxEbinLK
+# 5MF85y3jj5FnvOh0ej/K6UYkAD+hzvB+T9L0Gn30djgdFDYdpdmJb8rFUxTvEywg
+# ApXRCnnF0u5tPD+RRum5Ut7fXOKcpE1Rah3C6ZNNRnIWJvmE/5N33egDPVT8wgSg
+# X4+HvVV0mulkrLDkGspcOyAfC1VYCLDDy6e8WSxNQpHtW7MwLpKnk45OgAyuqXkx
+# 7FKRfJUQr3/BziPbD5nMasPE9CwfdWSCLKDYDgf3mg5lqFyVgZx+WO5585EhrdvN
+# LL+1iHL+BhudX3YPdjKIrlI8bTkuzAZOJEktL6lmANb8aCahggN3MIICXwIBATCB
+# 4qGBuKSBtTCBsjELMAkGA1UEBhMCVVMxEzARBgNVBAgTCldhc2hpbmd0b24xEDAO
+# BgNVBAcTB1JlZG1vbmQxHjAcBgNVBAoTFU1pY3Jvc29mdCBDb3Jwb3JhdGlvbjEM
+# MAoGA1UECxMDQU9DMScwJQYDVQQLEx5uQ2lwaGVyIERTRSBFU046NTdDOC0yRDE1
+# LTFDOEIxJTAjBgNVBAMTHE1pY3Jvc29mdCBUaW1lLVN0YW1wIFNlcnZpY2WiJQoB
+# ATAJBgUrDgMCGgUAAxUAnJzFa5jMp8GtRyDs00T8zm3Q6gOggcEwgb6kgbswgbgx
+# CzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpXYXNoaW5ndG9uMRAwDgYDVQQHEwdSZWRt
+# b25kMR4wHAYDVQQKExVNaWNyb3NvZnQgQ29ycG9yYXRpb24xDDAKBgNVBAsTA0FP
+# QzEnMCUGA1UECxMebkNpcGhlciBOVFMgRVNOOjI2NjUtNEMzRi1DNURFMSswKQYD
+# VQQDEyJNaWNyb3NvZnQgVGltZSBTb3VyY2UgTWFzdGVyIENsb2NrMA0GCSqGSIb3
+# DQEBBQUAAgUA3bPjtDAiGA8yMDE3MTExMzA5MjYxMloYDzIwMTcxMTE0MDkyNjEy
+# WjB3MD0GCisGAQQBhFkKBAExLzAtMAoCBQDds+O0AgEAMAoCAQACAin6AgH/MAcC
+# AQACAhnpMAoCBQDdtTU0AgEAMDYGCisGAQQBhFkKBAIxKDAmMAwGCisGAQQBhFkK
+# AwGgCjAIAgEAAgMW42ChCjAIAgEAAgMehIAwDQYJKoZIhvcNAQEFBQADggEBAICN
+# yOg0SxJ9Jz9WEJ/2y8o7jtpbMigo6NL1ntzBJ7LRJchq56+ftWoiQRB9DxHk9JeK
+# nzvPQdK8FaDJEwaQP0BjH6zp/DuOuAwQc3qYcQ0G1i0ev8yw9Y7V9ntn844viAWa
+# h9KcxJo31cH6uN9LnIoOAmMS8s/Gs+BqNmZbianCRW0q31qLn6VYapysP15U3p0X
+# +m6u3xOEq0wfxGJm4bs1BL2Gv43g+tNZ0CqBMqNahK8+qEEUAVwCVNtu9rIA0yj3
+# WClAC12oUHt9ydWP2UlNOo5iXYEsviQedOPbaw5g/1L5y0mGc4l4u5fmuyIPray3
+# gpNuWNF00pHej3z4cMExggL1MIIC8QIBATCBkzB8MQswCQYDVQQGEwJVUzETMBEG
+# A1UECBMKV2FzaGluZ3RvbjEQMA4GA1UEBxMHUmVkbW9uZDEeMBwGA1UEChMVTWlj
+# cm9zb2Z0IENvcnBvcmF0aW9uMSYwJAYDVQQDEx1NaWNyb3NvZnQgVGltZS1TdGFt
+# cCBQQ0EgMjAxMAITMwAAAKq3qYj/6lfDCgAAAAAAqjANBglghkgBZQMEAgEFAKCC
+# ATIwGgYJKoZIhvcNAQkDMQ0GCyqGSIb3DQEJEAEEMC8GCSqGSIb3DQEJBDEiBCDD
+# 79b/BEeVxWsCHPHNFA845WZ0C3QV4wzHEN6todX9UzCB4gYLKoZIhvcNAQkQAgwx
+# gdIwgc8wgcwwgbEEFJycxWuYzKfBrUcg7NNE/M5t0OoDMIGYMIGApH4wfDELMAkG
+# A1UEBhMCVVMxEzARBgNVBAgTCldhc2hpbmd0b24xEDAOBgNVBAcTB1JlZG1vbmQx
+# HjAcBgNVBAoTFU1pY3Jvc29mdCBDb3Jwb3JhdGlvbjEmMCQGA1UEAxMdTWljcm9z
+# b2Z0IFRpbWUtU3RhbXAgUENBIDIwMTACEzMAAACqt6mI/+pXwwoAAAAAAKowFgQU
+# mRDrbOLhluy/OrZH87B2R4t4uhgwDQYJKoZIhvcNAQELBQAEggEAP27SM9knMK8w
+# 1ZKn/3jxIqw6zjpjT1I39chQr0tKmG0czpRUqaK/dL4ihM+PN/lHZL+UU6dURVBl
+# uVil4Vy3xfj+12YWox+abyyZrI+RZz9bj5om2P8PFSAM73RMJvaw8+d0KtSGSSVe
+# t5dzST3sNhjkWkavdw5Wssa4SFYzkEQslTpNHto4ZCY7DfZpZ7rOJLBqAugHNnNN
+# blxrY+UtVmsiB0FBM3vDviaLkCdDleFrEZuTN9gxsyIT1pUsYayX0HAPTO+S2otP
+# djk36/H+jKAxzTdISTEmbFmkF1Dv9tN2Bn2/cmqVncYLGbUVmTx+tGgEf+C2y2gM
+# vIy+twojOw==
+# SIG # End signature block

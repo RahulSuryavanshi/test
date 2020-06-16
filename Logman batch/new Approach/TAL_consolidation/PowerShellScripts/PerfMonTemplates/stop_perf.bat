@@ -1,0 +1,6 @@
+Echo Stop: WIN2012SQL2012 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\STOP_OUTPUT.txt"
+logman stop se_consolidation_WIN2012SQL2012 -s WIN2012SQL2012 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\STOP_OUTPUT.txt"
+Echo Stop: OMNILOADVM1 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\STOP_OUTPUT.txt"
+logman stop se_consolidation_OMNILOADVM1 -s OMNILOADVM1 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\STOP_OUTPUT.txt"
+Echo Stop: SERVER2003 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\STOP_OUTPUT.txt"
+logman stop se_consolidation_SERVER2003 -s SERVER2003 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\STOP_OUTPUT.txt"

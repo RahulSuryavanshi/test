@@ -1,0 +1,5 @@
+IF NOT EXISTS (SELECT * FROM sys.databases WHERE NAME = N'DBATrace' )
+    BEGIN;
+        CREATE DATABASE DBATrace;
+        ALTER DATABASE DBATrace SET RECOVERY SIMPLE;
+    END;

@@ -1,0 +1,24 @@
+:: Loads PerfMon Files in Sequential Order 
+:: 
+@ECHO OFF 
+time /t 
+IF "%1" == "*TASKS*" GOTO TASKS 
+SET NUMBER=1 
+:COPY-PROJ 
+echo 1 
+dir C:\Customername\perfmon\*.CSV 
+Echo COPY-Proj 
+echo 2 
+FOR %%F IN (C:\Customername\perfmon\*.CSV) DO CALL "RelogIntoSQL.bat" *TASKS* %%F 
+GOTO DISPLAY 
+:TASKS 
+echo RELOG command for %2 runs here. 
+relog %2 -o SQL:PERFMONIN!%NUMBER% -f SQL 
+Move %2 C:\Customername\perfmon\Perfmon_done\ 
+SET /MATH NUMBER=%NUMBER% + 1 
+GOTO END 
+:DISPLAY 
+ECHO This is it. 
+SET NUMBER= 
+time /t 
+:END

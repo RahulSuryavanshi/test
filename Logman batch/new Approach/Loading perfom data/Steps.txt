@@ -1,0 +1,17 @@
+(1) Create folder as follows: C:\Customername
+(2) Run Script :Conperf_ANZ
+(3) Run Script :Create table 
+(4) Create DSN Connection
+(5) Create directory:  C:\Customername\perfmon
+(6) Place bnlg or csv files here i.e  C:\Customername\perfmon
+(7) Create directory:  C:\Customername\perfmon\perfmon_done
+(8) Run RelogintoSQL Batch File
+1.	For the line in the code that says [dir C:\ Customername\perfmon\*.BLG ] you have to first copy all the PerfMon files to that directory.   
+2.	Change the file extension in the script to match your files (either BLG or CSV).
+3.	Underneath the path of [C:\ Customername\perfmon\] create a directory named [Perfmon_done]
+4.	Remember to ensure the ODBC DSN named PERFMONIN is pointing to the correct database, ConPerf_customername
+
+(9) Run Script: Rename (Database Conperf_ANZ) -->db CONVERSION
+(10) Run Script : RedifinedOneScript (Database Conperf_ANZ) -->TRANSFORM
+(11) Run Script : Scripts_to_insert_into_perform_data -->LOAD
+

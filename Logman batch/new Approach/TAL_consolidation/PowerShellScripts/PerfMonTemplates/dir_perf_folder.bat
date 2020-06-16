@@ -1,0 +1,6 @@
+Echo Dir: WIN2012SQL2012 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DIR_OUTPUT.txt"
+dir "\\WIN2012SQL2012\C$\\*.blg" >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DIR_OUTPUT.txt"
+Echo Dir: OMNILOADVM1 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DIR_OUTPUT.txt"
+dir "\\OMNILOADVM1\C$\\*.blg" >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DIR_OUTPUT.txt"
+Echo Dir: SERVER2003 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DIR_OUTPUT.txt"
+dir "\\SERVER2003\C$\\*.blg" >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DIR_OUTPUT.txt"

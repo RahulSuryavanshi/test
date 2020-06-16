@@ -1,0 +1,43 @@
+\LogicalDisk(*)\Avg. Disk sec/Read
+\LogicalDisk(*)\Avg. Disk sec/Transfer
+\LogicalDisk(*)\Avg. Disk sec/Write
+\LogicalDisk(*)\Disk Bytes/sec
+\LogicalDisk(*)\Disk Read Bytes/sec
+\LogicalDisk(*)\Disk Write Bytes/sec
+\LogicalDisk(*)\Disk Reads/sec
+\LogicalDisk(*)\Disk Transfers/sec
+\LogicalDisk(*)\Disk Writes/sec
+\Memory\Pages/sec
+\Memory\Available MBytes
+\System\Context Switches/sec
+\System\Processor Queue Length
+\Network Interface(*)\Bytes Total/sec
+\Network Interface(*)\Output Queue Length
+\Network Interface(*)\Packets/sec
+\Process(sqlservr)\*
+\Process(_Total)\Processor Time
+\Process(_Total)\User Time
+\Process(_Total)\IO Data Operations/sec
+\Process(_Total)\Page Faults/sec
+\Process(_Total)\Private Bytes
+\Process(_Total)\Thread Count
+\Process(_Total)\Virtual Bytes
+\Process(_Total)\Working Set
+\Processor(_Total)\% Processor Time
+\Processor(_Total)\% User Time
+\SQLServer:Buffer Manager\Buffer cache hit ratio
+\SQLServer:Buffer Manager\Free list stalls/sec
+\SQLServer:Buffer Manager\Lazy writes/sec
+\SQLServer:Buffer Manager\Page life expectancy
+\SQLServer:Databases(*)\Data File(s) Size (KB)
+\SQLServer:Databases(*)\Log File(s) Size (KB)
+\SQLServer:Databases(*)\Transactions/sec
+\SQLServer:General Statistics\Logins/sec
+\SQLServer:General Statistics\User Connections
+\SQLServer:Memory Manager\Granted Workspace Memory (KB)
+\SQLServer:Memory Manager\Memory Grants Pending
+\SQLServer:Memory Manager\SQL Cache Memory (KB)
+\SQLServer:Memory Manager\Target Server Memory (KB)
+\SQLServer:Memory Manager\Total Server Memory (KB)
+\SQLServer:SQL Statistics\Batch Requests/sec
+\SQLServer:SQL Statistics\SQL Compilations/sec

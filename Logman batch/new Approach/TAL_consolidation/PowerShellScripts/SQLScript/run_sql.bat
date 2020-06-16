@@ -1,0 +1,6 @@
+sqlcmd -i "C:\TAL_consolidation\PowerShellScripts\PowershellScripts\sql_script.sql" -S WIN2012SQL2012\MSSQLSERVER2012 > "C:\TAL_consolidation\PowerShellScripts\Data\WIN2012SQL2012\MSSQLSERVER2012\SQL_OUTPUT.txt"
+sqlcmd -i "C:\TAL_consolidation\PowerShellScripts\PowershellScripts\sql_script.sql" -S WIN2012SQL2012\MSSQLSERVER2014 > "C:\TAL_consolidation\PowerShellScripts\Data\WIN2012SQL2012\MSSQLSERVER2014\SQL_OUTPUT.txt"
+sqlcmd -i "C:\TAL_consolidation\PowerShellScripts\PowershellScripts\sql_script.sql" -S WIN2012SQL2012\MSSQLSERVER2016 > "C:\TAL_consolidation\PowerShellScripts\Data\WIN2012SQL2012\MSSQLSERVER2016\SQL_OUTPUT.txt"
+sqlcmd -i "C:\TAL_consolidation\PowerShellScripts\PowershellScripts\sql_script.sql" -S WIN2012SQL2012\MSSQLSERVER2017 > "C:\TAL_consolidation\PowerShellScripts\Data\WIN2012SQL2012\MSSQLSERVER2017\SQL_OUTPUT.txt"
+sqlcmd -i "C:\TAL_consolidation\PowerShellScripts\PowershellScripts\sql_script.sql" -S OMNILOADVM1 > "C:\TAL_consolidation\PowerShellScripts\Data\OMNILOADVM1\MSSQLSERVER\SQL_OUTPUT.txt"
+sqlcmd -i "C:\TAL_consolidation\PowerShellScripts\PowershellScripts\sql_script.sql" -S SERVER2003 > "C:\TAL_consolidation\PowerShellScripts\Data\SERVER2003\MSSQLSERVER\SQL_OUTPUT.txt"
