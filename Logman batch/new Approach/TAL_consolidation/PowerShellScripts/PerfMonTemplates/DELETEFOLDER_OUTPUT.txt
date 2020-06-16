@@ -1,3 +1,0 @@
-Delete: WIN2012SQL2012 
-Delete: OMNILOADVM1 
-Delete: SERVER2003 

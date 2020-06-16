@@ -1,6 +1,0 @@
-Echo Delete: WIN2012SQL2012 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DELETE_OUTPUT.txt"
-logman delete se_consolidation_WIN2012SQL2012 -s WIN2012SQL2012 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DELETE_OUTPUT.txt"
-Echo Delete: OMNILOADVM1 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DELETE_OUTPUT.txt"
-logman delete se_consolidation_OMNILOADVM1 -s OMNILOADVM1 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DELETE_OUTPUT.txt"
-Echo Delete: SERVER2003 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DELETE_OUTPUT.txt"
-logman delete se_consolidation_SERVER2003 -s SERVER2003 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DELETE_OUTPUT.txt"

@@ -1,6 +1,0 @@
-Echo Delete: WIN2012SQL2012 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DELETEFOLDER_OUTPUT.txt"
-rd "\\WIN2012SQL2012\C$\" >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DELETEFOLDER_OUTPUT.txt"
-Echo Delete: OMNILOADVM1 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DELETEFOLDER_OUTPUT.txt"
-rd "\\OMNILOADVM1\C$\" >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DELETEFOLDER_OUTPUT.txt"
-Echo Delete: SERVER2003 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DELETEFOLDER_OUTPUT.txt"
-rd "\\SERVER2003\C$\" >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\DELETEFOLDER_OUTPUT.txt"

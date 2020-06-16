@@ -1,6 +1,0 @@
-Echo Create: WIN2012SQL2012 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\CREATE_OUTPUT.txt"
-logman create counter se_consolidation_WIN2012SQL2012_test1 -s WIN2012SQL2012 -cf "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\WIN2012SQL2012.template" -si 00:05:00 -b 11/06/2019 10:00:00AM -e 11/06/2019 10:15:00AM -max 100 -f bin -o "C:\\WIN2012SQL2012" >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\CREATE_OUTPUT.txt"
-Echo Create: OMNILOADVM1 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\CREATE_OUTPUT.txt"
-logman create counter se_consolidation_OMNILOADVM1_test1 -s OMNILOADVM1 -cf "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\OMNILOADVM1.template" -si 00:05:00 -b 11/06/2019 10:00:00AM -e 11/06/2019 10:15:00AM -max 100 -f bin -o "C:\\OMNILOADVM1" >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\CREATE_OUTPUT.txt"
-Echo Create: SERVER2003 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\CREATE_OUTPUT.txt"
-logman create counter se_consolidation_SERVER2003_test1 -s SERVER2003 -cf "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\SERVER2003.template" -si 00:05:00 -b 11/06/2019 10:00:00AM -e 11/06/2019 10:15:00AM -max 100 -f bin -o "C:\\SERVER2003" >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\CREATE_OUTPUT.txt"

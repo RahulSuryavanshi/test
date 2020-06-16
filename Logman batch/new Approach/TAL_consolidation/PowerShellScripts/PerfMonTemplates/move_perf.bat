@@ -1,6 +1,0 @@
-Echo Move: WIN2012SQL2012 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\MOVE_OUTPUT.txt"
-move /Y "\\WIN2012SQL2012\C$\\*.blg" "C:\TAL_consolidation\PowerShellScripts\Data\WIN2012SQL2012\PerfMon"  >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\MOVE_OUTPUT.txt"
-Echo Move: OMNILOADVM1 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\MOVE_OUTPUT.txt"
-move /Y "\\OMNILOADVM1\C$\\*.blg" "C:\TAL_consolidation\PowerShellScripts\Data\OMNILOADVM1\PerfMon"  >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\MOVE_OUTPUT.txt"
-Echo Move: SERVER2003 >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\MOVE_OUTPUT.txt"
-move /Y "\\SERVER2003\C$\\*.blg" "C:\TAL_consolidation\PowerShellScripts\Data\SERVER2003\PerfMon"  >> "C:\TAL_consolidation\PowerShellScripts\PerfMonTemplates\MOVE_OUTPUT.txt"
